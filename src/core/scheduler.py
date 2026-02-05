@@ -5,7 +5,7 @@ from typing import Any, Dict, TYPE_CHECKING
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger, CronTriggerError
+from apscheduler.triggers.cron import CronTrigger
 from rich.console import Console
 
 if TYPE_CHECKING:
@@ -63,7 +63,7 @@ class SchedulerManager:
         if not self.router:
             return "Error: Scheduler is not initialized with a router."
         try:
-            # Validate the cron expression before adding the job
+            # FIX: Use ValueError for cron expression validation as CronTriggerError is not standard.
             trigger = CronTrigger.from_crontab(cron_expression)
             job_id = f"cron_{context.get('user_id', 'anon')}_{hash(cron_expression) & 0xffffff}"
             job = self.scheduler.add_job(
@@ -72,8 +72,8 @@ class SchedulerManager:
             )
             job.modify(args=[job.id, self.router, context, message])
             return f"OK. Recurring job set with schedule '{cron_expression}'. Job ID: {job.id}"
-        except CronTriggerError as e:
-            return f"Error: Invalid Cron expression '{cron_expression}'. {e}"
+        except ValueError as e:
+            return f"Error: Invalid Cron expression '{cron_expression}'. Please use standard 5-field cron syntax. Details: {e}"
         except Exception as e:
             return f"Error setting cron job: {e}"
 
