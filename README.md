@@ -1,33 +1,47 @@
 # IronClaw
 
-A modular, open-source AI Agent Platform powered by LLMs.
+A modular, open-source AI Agent Platform with a persistent, self-correcting core.
 
 **Repository:** [https://github.com/kotttee/iron_claw](https://github.com/kotttee/iron_claw)
 
-## Core Philosophy
+## Features
 
-1.  **"Everything is a Plugin":** Channels, Tools, and Memory systems are all designed to be modular plugins.
-2.  **"No-Code Setup":** A user-friendly interactive CLI wizard (`setup.py`) handles all configuration, eliminating the need for manual JSON/YAML editing.
-3.  **"Markdown Native":** All agent memory and logs are stored in human-readable Markdown format.
-4.  **"English Only":** The entire codebase, UI, and documentation are in English.
+*   **One-Line Install:** A single command to deploy on a fresh Debian/Ubuntu server, including dependency handling.
+*   **Global CLI:** Manage your agent from anywhere with `ironclaw start`, `ironclaw settings`, etc.
+*   **Persistent Identity:** The agent's persona (`ai.md`) and user profile (`user.md`) are loaded on every run.
+*   **Self-Correcting Logic:** The core router can analyze tool failures and retry, allowing the agent to overcome errors.
+*   **Hidden Installation:** All files are stored neatly in `$HOME/.iron_claw`.
 
-## Quickstart
+## Quick Start: The One-Line Installer
 
-To get started, simply run the installer script. It handles everything from dependency checking to launching the application.
+To install and run IronClaw on a compatible system (Debian, Ubuntu), simply run the following command in your terminal. It will automatically check for dependencies (like `git` and `python3.13-venv`), install them, clone the repository to a hidden `.iron_claw` directory, and guide you through the setup.
 
 ```bash
-bash install.sh
+curl -sSL https://raw.githubusercontent.com/kotttee/iron_claw/main/install.sh | bash
 ```
 
-This script will:
-1.  Verify that Python 3.13+ is installed.
-2.  Create a local Python virtual environment in the `venv/` directory.
-3.  Install all required dependencies from `requirements.txt`.
-4.  Launch an interactive setup wizard to configure API keys and select/configure channels (like Console or Telegram).
-5.  Start the agent.
+## Usage
 
-After the first run, you can start the agent directly with:
+Once installed, you can manage the agent from any terminal window:
+
+*   **Start the agent:**
+    ```bash
+    ironclaw start
+    ```
+
+*   **Access settings:**
+    ```bash
+    ironclaw settings
+    ```
+
+*   **Update to the latest version:**
+    ```bash
+    ironclaw update
+    ```
+
+## Manual Access
+
+If you need to access the project files directly, they are located in the hidden directory:
 ```bash
-source venv/bin/activate
-python main.py
+cd ~/.iron_claw
 ```
