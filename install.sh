@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# --- IronClaw Bulletproof Bootstrap Installer ---
-# Installs to a hidden directory ($HOME/.iron_claw) and handles system dependencies.
+# --- IronClaw Bulletproof Bootstrap Installer (v3) ---
+# Implements an aggressive dependency fix for Debian/Ubuntu systems.
+# Installs to a hidden directory ($HOME/.iron_claw).
 set -e # Stop on first error
 
 # --- Helpers & Constants ---
@@ -18,7 +19,7 @@ warn() { echo -e "${YELLOW}$1${NC}"; }
 error() { echo -e "${RED}$1${NC}"; exit 1; }
 
 # --- 1. System & Dependency Checks ---
-info "--- Step 1: Checking System Dependencies ---"
+info "--- Step 1: Checking System & Dependencies ---"
 
 # OS Detection & Sudo Check
 if [ -f /etc/os-release ]; then
@@ -36,43 +37,27 @@ if [[ $EUID -ne 0 ]]; then
     fi
 fi
 
-# Git Check & Auto-Install
-if ! command -v git &> /dev/null; then
-    warn "Git not found. Attempting to install..."
-    case $OS in
-        ubuntu|debian) $SUDO_CMD apt-get update && $SUDO_CMD apt-get install -y git ;;
-        *) error "Unsupported OS for automatic Git installation. Please install Git manually." ;;
-    esac
-    if ! command -v git &> /dev/null; then
-        error "Git installation failed. Please install it manually and re-run."
-    fi
-fi
-success "✔ Git is installed."
-
-# Python & Venv Check with Auto-Fix for Debian/Ubuntu
-PYTHON_CMD=""
-if command -v python3.13 &> /dev/null && python3.13 -m venv --help &> /dev/null; then
-    PYTHON_CMD="python3.13"
-elif command -v python3 &> /dev/null && [[ $(python3 -c 'import sys; print(sys.version_info >= (3,13))') == "True" ]] && python3 -m venv --help &> /dev/null; then
-    PYTHON_CMD="python3"
+# Aggressive Dependency Fix for Debian/Ubuntu
+if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+    info "Debian/Ubuntu detected. Running preemptive dependency installation..."
+    $SUDO_CMD apt-get update
+    # Install the full suite of tools needed for Python, Git, and compiling packages.
+    $SUDO_CMD apt-get install -y python3.13-full python3.13-venv python3.13-dev git build-essential
+    success "✔ Core system dependencies ensured."
 fi
 
-if [ -z "$PYTHON_CMD" ]; then
-    warn "Python 3.13+ with the 'venv' module is not found or is incomplete."
-    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-        warn "Attempting to install Python 3.13 and required modules via apt..."
-        $SUDO_CMD apt-get update
-        $SUDO_CMD apt-get install -y python3.13-full python3.13-venv python3.13-dev
-        if command -v python3.13 &> /dev/null && python3.13 -m venv --help &> /dev/null; then
-            PYTHON_CMD="python3.13"
-        else
-            error "Python 3.13 installation failed. Please install it manually."
-        fi
-    else
-        error "Please install Python 3.13+ and its 'venv' module for your OS."
-    fi
+# Verify Python and Venv are now working
+PYTHON_CMD="python3.13"
+if ! command -v $PYTHON_CMD &> /dev/null; then
+    error "Python 3.13 could not be found or installed. Please install it manually."
 fi
-success "✔ Python 3.13+ with venv module is ready."
+
+info "Verifying Python virtual environment functionality..."
+if ! $PYTHON_CMD -m venv test_env_check --without-pip &> /dev/null; then
+    error "CRITICAL ERROR: The 'venv' module for Python 3.13 is still missing or broken. Please fix your Python installation."
+fi
+rm -rf test_env_check
+success "✔ Python environment is healthy."
 
 # --- 2. Clone or Update Repository ---
 info "\n--- Step 2: Cloning/Updating Repository in '$PROJECT_DIR' ---"

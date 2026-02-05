@@ -17,7 +17,7 @@ A modular, open-source AI Agent Platform with a persistent, self-correcting core
 To install and run IronClaw on a compatible system (Debian, Ubuntu), simply run the following command in your terminal. It will automatically check for dependencies (like `git` and `python3.13-venv`), install them, clone the repository to a hidden `.iron_claw` directory, and guide you through the setup.
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/kotttee/iron_claw/main/install.sh | bash
+sudo curl -sSL https://raw.githubusercontent.com/kotttee/iron_claw/main/install.sh | bash
 ```
 
 ## Usage
