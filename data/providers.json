@@ -1,0 +1,32 @@
+{
+  "OpenAI": {
+    "provider_name": "openai",
+    "api_key_name": "OPENAI_API_KEY",
+    "base_url": "https://api.openai.com/v1",
+    "models_endpoint": "/models"
+  },
+  "xAI (Grok)": {
+    "provider_name": "groq",
+    "api_key_name": "GROQ_API_KEY",
+    "base_url": "https://api.groq.com/openai/v1",
+    "models_endpoint": "/models"
+  },
+  "Anthropic": {
+    "provider_name": "anthropic",
+    "api_key_name": "ANTHROPIC_API_KEY",
+    "base_url": "https://api.anthropic.com/v1",
+    "models_endpoint": null
+  },
+  "OpenRouter": {
+    "provider_name": "openrouter",
+    "api_key_name": "OPENROUTER_API_KEY",
+    "base_url": "https://openrouter.ai/api/v1",
+    "models_endpoint": "/models"
+  },
+  "Local / Ollama": {
+    "provider_name": "ollama",
+    "api_key_name": "OLLAMA_API_KEY",
+    "base_url": "http://localhost:11434/v1",
+    "models_endpoint": "/models"
+  }
+}
