@@ -130,7 +130,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
 
         typing_task = asyncio.create_task(self._typing_loop(message.chat.id))
         try:
-            router.process_message(text_to_process, "telegram", str(message.chat.id))
+            router.process_message(text_to_process, "telegram_bot")
         finally:
             typing_task.cancel()
 
