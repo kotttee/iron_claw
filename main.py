@@ -105,12 +105,17 @@ def start(
     if daemon:
         console.print(Panel("🚀 [bold green]Starting IronClaw Agent in background[/bold green]"))
         try:
+            log_dir = DATA_ROOT / "logs"
+            log_dir.mkdir(exist_ok=True)
+            stdout_log = open(log_dir / "stdout.log", "w")
+            stderr_log = open(log_dir / "stderr.log", "w")
+
             p = subprocess.Popen(
                 [sys.executable, __file__, "start"],
                 close_fds=True,
                 start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=stdout_log,
+                stderr=stderr_log,
                 stdin=subprocess.DEVNULL,
             )
             with open(PID_FILE, "w") as f:
