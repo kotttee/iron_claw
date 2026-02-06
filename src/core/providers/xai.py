@@ -1,34 +1,40 @@
+from typing import List, Dict, Any
 from .base import BaseProvider
-from typing import List, Dict
-
-from xai_sdk import Client
-from xai_sdk.chat import user, system, assistant
-
+import xai_sdk
+from xai_sdk.chat import user, system
 
 class XAIProvider(BaseProvider):
     def __init__(self, api_key: str, base_url: str = None):
         super().__init__(api_key, base_url)
-
-        if Client is None:
-            raise ImportError("xai-sdk not found. Run: pip install xai-sdk")
-
-        self.client = Client(api_key=api_key)
+        self.client = xai_sdk.Client(api_key=self.api_key)
 
     def list_models(self) -> List[str]:
-        return ["grok-2-latest", "grok-2", "grok-beta"]
+        """
+        Fetches a list of available language models from the xAI API.
+        Returns an empty list if the API call fails.
+        """
+        try:
+            # The SDK returns a list of LanguageModel objects
+            models = self.client.models.list_language_models()
+            # Each object has a 'name' attribute (e.g., 'grok-1')
+            return [model.name for model in models]
+        except Exception:
+            return []
 
-    def chat(self, model: str, messages: List[Dict[str, str]], system_prompt: str) -> str:
-        chat_session = self.client.chat.create(model=model)
-        chat_session.append(system(system_prompt))
+    def chat(self, model: str, messages: List[Dict[str, Any]], system_prompt: str) -> str:
+        """
+        Sends a chat completion request to the xAI API.
+        """
+        conversation = [system(system_prompt)]
+        for message in messages:
+            if message["role"] == "user":
+                conversation.append(user(message["content"]))
+            # Note: The current xAI SDK chat flow might not explicitly handle 'assistant' messages
+            # in the same way as OpenAI. We will only push user messages for now.
 
-        for msg in messages:
-            role = msg.get("role")
-            content = msg.get("content")
+        response = self.client.chat.create(
+            model=model,
+            conversation=conversation
+        ).sample()
 
-            if role == "user":
-                chat_session.append(user(content))
-            elif role == "assistant":
-                chat_session.append(assistant(content))
-
-        response = chat_session.sample()
         return response.content

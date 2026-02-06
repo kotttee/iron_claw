@@ -14,8 +14,6 @@ class BaseProvider(ABC):
             api_key: The API key for the provider.
             base_url: The base URL for the API endpoint.
         """
-        if not api_key:
-            raise ValueError("API key cannot be empty.")
         self.api_key = api_key
         self.base_url = base_url
 
@@ -23,6 +21,7 @@ class BaseProvider(ABC):
     def list_models(self) -> List[str]:
         """
         Fetches a list of available model names from the provider's API.
+        If an error occurs, it should return an empty list.
 
         Returns:
             A list of strings, where each string is a model identifier.

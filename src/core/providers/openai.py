@@ -1,26 +1,29 @@
 from openai import OpenAI
-
+from typing import List, Dict, Any
 from .base import BaseProvider
-from typing import List, Dict
-
 
 class OpenAIProvider(BaseProvider):
     def __init__(self, api_key: str, base_url: str = None):
         super().__init__(api_key, base_url)
-
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def list_models(self) -> List[str]:
+        """
+        Fetches a list of available model names from the OpenAI API.
+        Returns an empty list if the API call fails.
+        """
         try:
-            return [m.id for m in self.client.models.list()]
+            return [model.id for model in self.client.models.list()]
         except Exception:
-            return ["gpt-4o", "gpt-4-turbo"]
+            return []
 
-    def chat(self, model: str, messages: List[Dict[str, str]], system_prompt: str) -> str:
-        full_messages = [{"role": "system", "content": system_prompt}] + messages
-
+    def chat(self, model: str, messages: List[Dict[str, Any]], system_prompt: str) -> str:
+        """
+        Sends a chat completion request to the OpenAI API.
+        """
+        all_messages = [{"role": "system", "content": system_prompt}] + messages
         response = self.client.chat.completions.create(
             model=model,
-            messages=full_messages
+            messages=all_messages,
         )
         return response.choices[0].message.content
