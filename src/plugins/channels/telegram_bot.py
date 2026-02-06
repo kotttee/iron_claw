@@ -30,6 +30,11 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
         self.bot: Bot | None = None
         self.admin_id: int | None = None
 
+    @property
+    def name(self) -> str:
+        """The unique name of this channel."""
+        return "telegram_bot"
+
     async def healthcheck(self) -> Tuple[bool, str]:
         """Checks if the bot token and admin ID are valid."""
         token = self._get_secret("TELEGRAM_BOT_TOKEN")
@@ -87,7 +92,6 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
         token = self._get_secret("TELEGRAM_BOT_TOKEN")
         admin_id_str = self._get_secret("TELEGRAM_ADMIN_ID")
         
-        # Healthcheck should prevent start() from being called if these are missing
         self.admin_id = int(admin_id_str)
         self.bot = Bot(token=token)
         dp = Dispatcher()
@@ -130,7 +134,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
 
         typing_task = asyncio.create_task(self._typing_loop(message.chat.id))
         try:
-            router.process_message(text_to_process, "telegram")
+            router.process_message(text_to_process, "telegram", str(message.chat.id))
         finally:
             typing_task.cancel()
 

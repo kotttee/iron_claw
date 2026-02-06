@@ -22,6 +22,11 @@ class ConsoleChannel(BaseChannel):
         super().__init__(name="console", category="channel")
         self.identity_manager = IdentityManager()
 
+    @property
+    def name(self) -> str:
+        """The unique name of this channel."""
+        return "console"
+
     def setup_wizard(self) -> None:
         """Console channel requires no setup."""
         console.print("The console channel is built-in and requires no configuration.")
