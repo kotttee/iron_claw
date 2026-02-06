@@ -41,7 +41,6 @@ def run_onboarding_session():
             console.print("[bold cyan]Initializing and validating provider...[/bold cyan]")
             temp_kernel = Kernel()
             # Test the provider by listing models. This will fail if the API key is wrong.
-            # Assuming a `list_models` method exists on the provider.
             temp_kernel.router.provider.list_models()
             kernel = temp_kernel
             console.print("[bold green]Provider configuration is valid.[/bold green]")
@@ -58,8 +57,6 @@ def run_onboarding_session():
     console.rule("[bold blue]Conversational Onboarding[/bold blue]")
     console.print("Let's set up the AI's identity and your user profile through a quick chat.")
     
-    kernel.router.context_manager.add_message("system", SYSTEM_PROMPT)
-
     # AI starts the conversation
     initial_response = "Hello! I'm the IronClaw Architect, ready to get set up. To start, let's define my persona. What would you like to name me?"
     console.print(Markdown(initial_response))
@@ -72,9 +69,12 @@ def run_onboarding_session():
                 break
 
             kernel.router.context_manager.add_message("user", user_input)
+            
+            # Pass the system prompt as a separate argument
             response = kernel.router.provider.chat(
                 model=kernel.router.model_name,
-                messages=kernel.router.context_manager.history
+                messages=kernel.router.context_manager.history,
+                system_prompt=SYSTEM_PROMPT
             )
             kernel.router.context_manager.add_message("assistant", response)
 

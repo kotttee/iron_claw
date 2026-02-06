@@ -34,7 +34,7 @@ class XAIProvider(BaseProvider):
 
         response = self.client.chat.create(
             model=model,
-            conversation=conversation
+            messages=conversation
         ).sample()
 
         return response.content
