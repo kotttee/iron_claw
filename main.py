@@ -261,7 +261,7 @@ def update():
         raise typer.Exit(1)
 
     if not questionary.confirm(
-        "This will reset your local code to the latest 'origin/main'. "
+        "This will reset your local code to the latest 'iron_claw/main'. "
         "User data (like identities and memory) will be preserved. Are you sure?"
     ).ask():
         console.print("[yellow]Update cancelled.[/yellow]")
@@ -290,12 +290,11 @@ def update():
                 cwd=project_root,
                 capture_output=True,
             )
-            console.print("🔄 Resetting core code to 'origin/main'...")
+            console.print("🔄 Resetting core code to 'iron_claw/main'...")
             subprocess.run(
                 ["git", "reset", "--hard", "origin/main"],
                 check=True,
-                cwd=-
-                project_root,
+                cwd=project_root,
                 capture_output=True,
             )
 
