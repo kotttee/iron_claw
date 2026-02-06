@@ -5,21 +5,25 @@ from rich.console import Console
 from rich.prompt import Prompt
 
 from src.interfaces.channel import BaseChannel
+from src.core.interfaces import ConfigurablePlugin
 
 if TYPE_CHECKING:
     from src.core.router import MessageRouter
 
 
-class ConsoleChannel(BaseChannel):
+class ConsoleChannel(BaseChannel, ConfigurablePlugin):
     """
     A channel for interacting with the AI agent via the command line.
     """
 
+    def __init__(self):
+        super().__init__(name="console", category="channel")
+
     @property
     def plugin_id(self) -> str:
-        return "channels/console"
+        return "console"
 
-    def setup(self, wizard_context: Dict[str, Any]) -> Dict[str, Any]:
+    def setup_wizard(self) -> None:
         """
         The console channel prompts for an agent personality.
         """
@@ -29,7 +33,12 @@ class ConsoleChannel(BaseChannel):
             "Set Agent Personality for this channel",
             default="A helpful assistant.",
         )
-        return {"personality": personality}
+        self.config["personality"] = personality
+        self.save_config()
+
+    def is_enabled(self) -> bool:
+        """Console is always enabled."""
+        return True
 
     async def start(self, config: Dict[str, Any], router: "MessageRouter"):
         """
@@ -37,7 +46,7 @@ class ConsoleChannel(BaseChannel):
         """
         console = Console()
         console.print(f"[bold blue]Starting console channel...[/bold blue]")
-        console.print(f"Agent Personality: {config.get('personality', 'Not set')}")
+        console.print(f"Agent Personality: {self.config.get('personality', 'Not set')}")
         
         user_id = "console_user"
 
@@ -59,3 +68,9 @@ class ConsoleChannel(BaseChannel):
         # user_id is ignored for a single-user console channel
         console = Console()
         console.print(f"[bold red]Agent[/bold red]: {text}")
+
+    def setup(self, wizard_context: Dict[str, Any]) -> Dict[str, Any]:
+        # This method is required by BaseChannel, but we use setup_wizard.
+        # We can leave it empty or raise a NotImplementedError if it's not supposed to be called.
+        # For now, we'll just return the config.
+        return self.config
