@@ -75,21 +75,35 @@ class Router:
         if enabled_tools:
             for tool_plugin in enabled_tools:
                 try:
-                    if hasattr(tool_plugin, 'description') and tool_plugin.description:
-                        tool_definitions.append(f"- {tool_plugin.name}: {tool_plugin.description.strip()}")
-                    else:
-                        # Fallback for functional tools or others if description is missing
-                        module = inspect.getmodule(tool_plugin)
-                        if hasattr(module, 'run') and callable(module.run):
-                            docstring = inspect.getdoc(module.run)
-                            if docstring:
-                                tool_definitions.append(f"- {tool_plugin.name}: {docstring.strip()}")
-                except Exception:
-                    pass
+                    executable = None
+                    if hasattr(tool_plugin, 'execute') and callable(tool_plugin.execute):
+                        executable = tool_plugin.execute
+                    elif hasattr(tool_plugin, 'run') and callable(tool_plugin.run):
+                        executable = tool_plugin.run
+
+                    if executable:
+                        docstring = inspect.getdoc(executable) or "No description available."
+                        sig = inspect.signature(executable)
+                        
+                        arg_details = []
+                        for param in sig.parameters.values():
+                            if param.name == 'self': continue
+                            detail = f"{param.name}"
+                            if param.annotation != inspect.Parameter.empty:
+                                detail += f": {param.annotation.__name__}"
+                            if param.default != inspect.Parameter.empty:
+                                detail += f" (default: {param.default})"
+                            arg_details.append(detail)
+                        
+                        args_str = ", ".join(arg_details)
+                        tool_definitions.append(f"- {tool_plugin.name}({args_str}): {docstring.strip()}")
+
+                except Exception as e:
+                    console.print(f"[yellow]Could not generate definition for tool {tool_plugin.name}: {e}[/yellow]")
 
         if tool_definitions:
             tools_prompt = "\n\n=== AVAILABLE TOOLS ===\n"
-            tools_prompt += "You have access to the following Python functions. To use them, you MUST respond with a JSON object like this: {\"tool\": \"<tool_name>\", \"args\": {\"<arg_name>\": \"<value>\"}}. The 'tool' key must contain the name of the tool to use, and the 'args' key must contain a dictionary of arguments for the tool.\n"
+            tools_prompt += "You have access to the following Python functions. To use them, you MUST respond with a JSON object like this: {\"tool\": \"<tool_name>\", \"args\": {\"<arg_name>\": \"<value>\"}}. The 'tool' key must contain the name of the tool to use, and the 'args' key must contain a dictionary of arguments for the tool.\n\n"
             tools_prompt += "\n".join(tool_definitions)
             return base_prompt + tools_prompt
         
@@ -164,7 +178,6 @@ class Router:
         channel_instance, target = self.get_preferred_output_channel()
 
         console.print(f"Router: Sending message to {channel_instance.name} (target: {target})")
-        raise ValueError(f"Router: Sending message to {channel_instance.name} (target: {target})")
         if not channel_instance:
             console.print("Error: No active/preferred output channel found.")
             return
@@ -187,16 +200,16 @@ class Router:
             console.print(f"Could not find or use send_message on channel instance: {channel_instance.name}")
 
 
-    def process_message(self, user_message: str, source: str) -> str:
+    def process_message(self, user_message: str, source: str) -> None:
         """
         Processes a user's message through the full chat pipeline, including tool execution.
         """
         if not user_message:
-            return "Input cannot be empty."
+            self._send_to_channel("Input cannot be empty.")
+            return
 
         self.context_manager.add_message("user", user_message)
         
-        # Tool execution loop
         max_iterations = 5
         for i in range(max_iterations):
             full_history = self.context_manager.history
@@ -208,7 +221,6 @@ class Router:
 
             self.context_manager.add_message("assistant", assistant_response)
 
-            # Check for tool call
             tool_call = self._parse_tool_call(assistant_response)
             if tool_call:
                 tool_name = tool_call.get("tool")
@@ -218,15 +230,23 @@ class Router:
                 tool_result = self._execute_tool(tool_name, tool_args)
                 console.print(f"Router: Tool result: {tool_result}")
                 
-                # Add tool result to context as a system message (or user message acting as system)
                 self.context_manager.add_message("user", f"[TOOL RESULT for {tool_name}]: {tool_result}")
-                # Continue the loop to let the LLM see the result
                 continue
             else:
-                # No tool call, final response
-                return assistant_response
+                self._send_to_channel(assistant_response)
+                return
 
-        return "Max tool execution iterations reached."
+        # If the loop completes, it means we've hit the max iterations
+        error_injection = "[SYSTEM NOTE: You have been unable to complete the user's request because you are stuck in a loop of calling tools. Apologize to the user, explain that you have encountered an internal error, and ask them to try rephrasing their request.]"
+        self.context_manager.add_message("user", error_injection)
+        
+        final_response = self.provider.chat(
+            model=self.model_name,
+            messages=self.context_manager.history,
+            system_prompt=self.system_prompt
+        )
+        self._send_to_channel(final_response)
+
 
     def _parse_tool_call(self, text: str) -> dict | None:
         """

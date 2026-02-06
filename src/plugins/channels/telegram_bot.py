@@ -188,6 +188,5 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             text = text[split_pos:].lstrip()
 
         for part in parts:
-            await self.bot.send_message(chat_id=709742740, text="1")
             await self.bot.send_message(chat_id=chat_id, text=part)
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(2)
