@@ -152,7 +152,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             system_text = f"[SYSTEM EVENT: User sent a DOCUMENT. Filename: {doc.file_name}. File ID: {doc.file_id}]"
             await self._process_with_typing(message, router, system_text)
 
-    def send_message(self, text: str, target: str):
+    def send_message(self, text: str, target: int):
         """Sends a message to the target user. Required by the Router."""
         if not self.bot:
             console.print("[bold red]Cannot send message, bot is not initialized.[/bold red]")
@@ -160,7 +160,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
         
         asyncio.create_task(self._send_text_async(target, text))
 
-    async def _send_text_async(self, user_id: str, text: str):
+    async def _send_text_async(self, user_id: int, text: str):
         """Asynchronously sends a text message, handling splitting."""
         if not self.bot: return
 
