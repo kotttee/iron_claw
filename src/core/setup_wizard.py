@@ -10,7 +10,13 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 # --- Configuration ---
-PROJECT_ROOT = Path(os.environ.get("IRONCLAW_ROOT", Path.home() / ".iron_claw"))
+try:
+    PROJECT_ROOT = Path(os.environ["IRONCLAW_ROOT"])
+except KeyError:
+    PROJECT_ROOT = Path.home() / ".iron_claw"
+    if not PROJECT_ROOT.exists():
+        PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
+
 DATA_DIR = PROJECT_ROOT / "data"
 IDENTITY_DIR = DATA_DIR / "identity"
 CONFIG_PATH = DATA_DIR / "config.json"
@@ -23,12 +29,10 @@ USER_IDENTITY_PATH = IDENTITY_DIR / "user.md"
 console = Console()
 
 def save_file(path: Path, content: str):
-    """Helper to save content to a file, creating directories if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
 def load_providers() -> Dict[str, Any]:
-    """Loads provider definitions from the JSON file."""
     if not PROVIDERS_PATH.exists():
         console.print(f"[bold red]Error: Provider definition file not found at {PROVIDERS_PATH}[/bold red]")
         return {}
@@ -39,7 +43,6 @@ def load_providers() -> Dict[str, Any]:
         return {}
 
 def get_available_models(provider: str, api_key: str, base_url: Optional[str]) -> List[str]:
-    """Attempts to fetch the list of available models from the provider's API."""
     try:
         models = litellm.get_model_list(api_key=api_key, base_url=base_url)
         return models or []
@@ -60,7 +63,10 @@ def configure_engine() -> Optional[Dict[str, Any]]:
         console.print(Panel("Select your LLM Provider.", title="[bold cyan]LLM Setup[/bold cyan]", border_style="cyan"))
         choice_desc = "\n".join([f"[{i}] {name}" for i, name in provider_choices.items()])
         
-        choice = Prompt.ask("Choose an option", choices=list(provider_choices.keys()), description=choice_desc)
+        # FIX: Combine prompt and description into a single string.
+        prompt_text = f"Choose an option\n\n{choice_desc}"
+        choice = Prompt.ask(prompt_text, choices=list(provider_choices.keys()))
+
         selected_key = provider_choices[choice]
         
         if selected_key == "Custom/Other":
@@ -168,6 +174,3 @@ def run_ai_wizard():
             console.print("[bold red]Setup aborted.[/bold red]")
     except KeyboardInterrupt:
         console.print("\n[bold red]Setup cancelled by user.[/bold red]")
-
-if __name__ == "__main__":
-    run_ai_wizard()

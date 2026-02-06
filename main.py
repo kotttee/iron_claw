@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -13,10 +12,8 @@ from rich.prompt import Prompt, Confirm
 from rich.spinner import Spinner
 
 # --- Core Imports ---
-from src.core.router import MessageRouter
-from src.core.scheduler import SchedulerManager
-from src.core.plugin_loader import load_plugins
-from src.interfaces.channel import BaseChannel
+from src.core.kernel import Kernel
+from src.core.setup_wizard import run_ai_wizard
 
 # --- App Setup ---
 app = typer.Typer(name="ironclaw", help="A modular, open-source AI Agent Platform.", add_completion=False)
@@ -40,59 +37,13 @@ def get_editor() -> str:
 
 @app.command()
 def start():
-    """Starts the IronClaw agent and runs all enabled channels."""
-    console.rule("[bold blue]IronClaw Agent Initializing[/bold blue]")
-
-    if not CONFIG_PATH.exists():
-        console.print(f"[bold red]Error: Config file not found at '{CONFIG_PATH}'.[/bold red]")
-        console.print("Please run [bold cyan]ironclaw setup[/bold cyan] first.")
-        raise typer.Exit(code=1)
-
+    """Initializes the Kernel and starts the IronClaw agent."""
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            config: Dict[str, Any] = json.load(f)
-    except Exception as e:
-        console.print(f"[bold red]Error reading config file: {e}[/bold red]")
+        kernel = Kernel(config_path=CONFIG_PATH)
+        kernel.run()
+    except (FileNotFoundError, ValueError) as e:
+        console.print(f"[bold red]Could not start agent: {e}[/bold red]")
         raise typer.Exit(code=1)
-
-    scheduler = SchedulerManager()
-    router = MessageRouter(config, scheduler)
-    scheduler.start(router)
-
-    all_plugin_classes = load_plugins(BaseChannel, "channels")
-    all_plugins = {p().plugin_id: p for p in all_plugin_classes}
-
-    async def run_agent():
-        tasks = []
-        enabled_channels = config.get("channels", {})
-        if not enabled_channels:
-            console.print("[bold yellow]Warning: No channels are enabled.[/bold yellow]")
-            return
-
-        for plugin_id, plugin_config in enabled_channels.items():
-            if plugin_class := all_plugins.get(plugin_id):
-                channel_instance = plugin_class()
-                router.register_channel(channel_instance)
-                tasks.append(asyncio.create_task(channel_instance.start(plugin_config, router)))
-            else:
-                console.print(f"[bold red]Warning: Configured plugin '{plugin_id}' not found.[/bold red]")
-        
-        if not tasks:
-            console.print("[bold red]Error: No valid channels could be started.[/bold red]")
-            return
-
-        console.rule("[bold green]IronClaw Agent is Running[/bold green]")
-        await asyncio.gather(*tasks)
-
-    try:
-        with Spinner("dots", text="Agent is running... Press Ctrl+C to stop."):
-            asyncio.run(run_agent())
-    except KeyboardInterrupt:
-        console.print("\n")
-    finally:
-        console.rule("[bold magenta]Shutdown signal received.[/bold magenta]")
-        scheduler.stop()
-        console.print("[green]✔ Scheduler shut down gracefully.[/green]")
 
 @app.command()
 def settings():
@@ -100,12 +51,18 @@ def settings():
     console.rule("[bold cyan]IronClaw Settings[/bold cyan]")
     
     while True:
-        choice = Prompt.ask(
-            "Choose an option",
-            choices=["1", "2", "3", "4", "5", "q"],
-            description=("[1] Edit AI Persona\n[2] Edit User Profile\n[3] Re-run Core Setup\n"
-                         "[4] View Memory Stats\n[5] Reset/Clear Logs\n[q] Quit")
+        # FIX: Combine prompt and description into a single multi-line string.
+        prompt_text = (
+            "Choose an option\n\n"
+            "[1] Edit AI Persona\n"
+            "[2] Edit User Profile\n"
+            "[3] Re-run Core Setup\n"
+            "[4] View Memory Stats\n"
+            "[5] Reset/Clear Logs\n"
+            "[q] Quit"
         )
+        choice = Prompt.ask(prompt_text, choices=["1", "2", "3", "4", "5", "q"])
+        
         if choice == "q": break
         
         if choice == "1":
@@ -143,17 +100,11 @@ def update():
 
 @app.command(name="setup")
 def setup_command():
-    """Runs the initial AI-driven setup wizard as a separate process."""
+    """Runs the initial AI-driven setup wizard directly."""
     console.print("[yellow]Launching the setup wizard...[/yellow]")
-    try:
-        # FIX: Execute setup.py as a subprocess using the same Python interpreter.
-        setup_script_path = PROJECT_ROOT / "setup.py"
-        subprocess.run([sys.executable, str(setup_script_path)], check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        console.print(f"[bold red]The setup wizard failed to run. Error: {e}[/bold red]")
+    run_ai_wizard()
 
 if __name__ == "__main__":
-    # Set an environment variable to help scripts find the root, then change directory.
     os.environ["IRONCLAW_ROOT"] = str(PROJECT_ROOT)
     os.chdir(PROJECT_ROOT)
     app()
