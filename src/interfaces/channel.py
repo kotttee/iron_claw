@@ -9,15 +9,6 @@ class BaseChannel(ABC):
     such as a console, a Telegram chat, or a Discord server.
     """
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """
-        A unique identifier for the plugin (e.g., 'console', 'telegram').
-        This should be a lowercase string with no spaces.
-        """
-        raise NotImplementedError
-
     @abstractmethod
     def setup_wizard(self) -> None:
         """
