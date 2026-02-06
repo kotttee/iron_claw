@@ -7,25 +7,22 @@ from rich.panel import Panel
 
 from src.core.ai.identity import IdentityManager
 from src.interfaces.channel import BaseChannel
+from src.core.interfaces import ConfigurablePlugin
 
 if TYPE_CHECKING:
     from src.core.ai.router import Router
 
 console = Console()
 
-class ConsoleChannel(BaseChannel):
+class ConsoleChannel(BaseChannel, ConfigurablePlugin):
     """
     The default channel for interacting with the agent via the command line.
     """
 
     def __init__(self):
+        # The name is set here by the parent constructor
         super().__init__(name="console", category="channel")
         self.identity_manager = IdentityManager()
-
-    @property
-    def name(self) -> str:
-        """The unique name of this channel."""
-        return "console"
 
     def setup_wizard(self) -> None:
         """Console channel requires no setup."""

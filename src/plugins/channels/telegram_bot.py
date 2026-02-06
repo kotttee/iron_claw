@@ -26,14 +26,10 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
     """
 
     def __init__(self):
+        # The name is set here by the parent constructor
         super().__init__(name="telegram_bot", category="channel")
         self.bot: Bot | None = None
         self.admin_id: int | None = None
-
-    @property
-    def name(self) -> str:
-        """The unique name of this channel."""
-        return "telegram_bot"
 
     async def healthcheck(self) -> Tuple[bool, str]:
         """Checks if the bot token and admin ID are valid."""
