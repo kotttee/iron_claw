@@ -3,7 +3,7 @@ from functools import partial
 from typing import Any, Dict, Tuple, TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.enums import ChatAction, ParseMode
+from aiogram.enums import ChatAction
 from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramUnauthorizedError
 from rich.console import Console
@@ -128,6 +128,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
 
         typing_task = asyncio.create_task(self._typing_loop(message.chat.id))
         try:
+            # Fire-and-forget: The router is responsible for sending the response.
             router.process_message(text_to_process, "telegram_bot")
         finally:
             typing_task.cancel()
@@ -188,5 +189,5 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             text = text[split_pos:].lstrip()
 
         for part in parts:
-            await self.bot.send_message(chat_id=chat_id, text=part, parse_mode=ParseMode.MARKDOWN_V2)
-            await asyncio.sleep(2)
+            await self.bot.send_message(chat_id=chat_id, text=part)
+            await asyncio.sleep(0.5)

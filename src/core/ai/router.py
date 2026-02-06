@@ -112,36 +112,34 @@ class Router:
 
     def get_output_channel(self, source: str | None = None):
         """
-        Determines the output channel. Prefers the source channel, then the last used channel,
-        then the default preferred channel.
+        Determines the output channel based on a priority system.
+        Priority: Source Channel > Last Used Channel > Preferred (Network) Channel > Console
         """
-        target_channel_name = source or self.last_channel_name
-
+        # 1. Try the source channel first
+        target_channel_name = source
         if target_channel_name:
-            channel_instance = next((c for c in self.active_channels if c.name == target_channel_name), None)
-            if channel_instance:
-                if channel_instance.name == 'telegram_bot':
-                    admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
-                    if admin_id:
-                        return channel_instance, admin_id
-                else: # console or other simple channels
-                    return channel_instance, None
+            channel = next((c for c in self.active_channels if c.name == target_channel_name), None)
+            if channel:
+                target = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID") if channel.name == 'telegram_bot' else None
+                return channel, target
 
-        # Fallback to preferred channel if specific one not found or not usable
-        return self.get_preferred_output_channel()
+        # 2. Fallback to the last used channel
+        if self.last_channel_name:
+            channel = next((c for c in self.active_channels if c.name == self.last_channel_name), None)
+            if channel:
+                target = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID") if channel.name == 'telegram_bot' else None
+                return channel, target
 
-    def get_preferred_output_channel(self):
-        """
-        Determines the default preferred output channel (e.g., a network channel over console).
-        """
+        # 3. Fallback to a preferred network channel
         for channel in self.active_channels:
             if channel.name == 'telegram_bot' and channel.is_enabled():
                 admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
                 if admin_id:
                     return channel, admin_id
-
-        # Default to console if no other preference matches
-        return next((c for c in self.active_channels if c.name == 'console'), None), None
+        
+        # 4. Default to console if nothing else is available
+        console_channel = next((c for c in self.active_channels if c.name == 'console'), None)
+        return console_channel, None
 
 
     def handle_scheduled_event(self, event_instruction: str):
@@ -155,7 +153,6 @@ class Router:
 
         messages = [{"role": "user", "content": f"Scheduled Task: {event_instruction}"}]
 
-        # Tool execution loop for scheduled events
         max_iterations = 5
         response_text = ""
 
@@ -165,27 +162,20 @@ class Router:
                 messages=messages,
                 system_prompt=system_prompt
             )
-
             messages.append({"role": "assistant", "content": response_text})
-
             tool_call = self._parse_tool_call(response_text)
             if tool_call:
                 tool_name = tool_call.get("tool")
                 tool_args = tool_call.get("args", {})
-
                 console.print(f"Router (Scheduled): Executing tool '{tool_name}'")
                 tool_result = self._execute_tool(tool_name, tool_args)
-
                 messages.append({"role": "user", "content": f"[TOOL RESULT for {tool_name}]: {tool_result}"})
                 continue
             else:
                 break
 
-        # Save the interaction to history
         self.context_manager.add_message("user", f"Scheduled Task: {event_instruction}")
         self.context_manager.add_message("assistant", response_text)
-
-        # Send the response to the appropriate channel
         self._send_to_channel(response_text)
 
     def _send_to_channel(self, text: str, source: str | None = None):
@@ -199,10 +189,8 @@ class Router:
             return
 
         console.print(f"Router: Sending message to {channel_instance.name} (target: {target or 'default'})")
-
         try:
             channel_instance.send_message(text, target)
-            console.print(f"Message sent successfully via {channel_instance.name}.")
         except Exception as e:
             console.print(f"[bold red]Error sending message via {channel_instance.name}: {e}[/bold red]")
 
@@ -219,9 +207,9 @@ class Router:
         self.context_manager.add_message("user", user_message)
         
         max_iterations = 5
+        final_response = "Max tool execution iterations reached."
         for i in range(max_iterations):
             full_history = self.context_manager.history
-            console.print(f"full history len: {full_history}")
             assistant_response = self.provider.chat(
                 model=self.model_name,
                 messages=full_history,
@@ -242,18 +230,9 @@ class Router:
                 self.context_manager.add_message("user", f"[TOOL RESULT for {tool_name}]: {tool_result}")
                 continue
             else:
-                self._send_to_channel(assistant_response, source)
-                return
-
-        # If the loop completes, it means we've hit the max iterations
-        error_injection = "[SYSTEM NOTE: You have been unable to complete the user's request because you are stuck in a loop of calling tools. Apologize to the user, explain that you have encountered an internal error, and ask them to try rephrasing their request.]"
-        self.context_manager.add_message("user", error_injection)
+                final_response = assistant_response
+                break
         
-        final_response = self.provider.chat(
-            model=self.model_name,
-            messages=self.context_manager.history,
-            system_prompt=self.system_prompt
-        )
         self._send_to_channel(final_response, source)
 
 
@@ -262,13 +241,10 @@ class Router:
         Attempts to find and parse a JSON tool call in the text.
         """
         try:
-            # Look for something that looks like {"tool": ...}
-            # This is a simple heuristic; a more robust one might use regex or a real parser
             start_idx = text.find('{"tool":')
             if start_idx == -1:
                 return None
             
-            # Find the matching closing brace
             brace_count = 0
             for j in range(start_idx, len(text)):
                 if text[j] == '{':
@@ -293,10 +269,8 @@ class Router:
             return f"Error: Tool '{tool_name}' not found or not enabled."
 
         try:
-            # If it's a BaseTool (class-based), it has an execute method
             if hasattr(tool, 'execute') and callable(tool.execute):
                 return str(tool.execute(**args))
-            # Fallback for functional tools (already wrapped in plugin_manager.py)
             elif hasattr(tool, 'run') and callable(tool.run):
                  return str(tool.run(**args))
             else:
