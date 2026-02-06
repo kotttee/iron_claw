@@ -34,6 +34,10 @@ class BaseTool(ABC, BaseModel):
         """Executes the tool with the given arguments."""
         raise NotImplementedError
 
+    def is_enabled(self) -> bool:
+        """Returns True if the tool is enabled and ready to use."""
+        return True
+
     def to_openai_schema(self) -> Dict[str, Any]:
         """
         Converts the tool's Pydantic model into a JSON schema compatible with OpenAI's API.

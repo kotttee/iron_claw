@@ -18,42 +18,55 @@ PLUGIN_BASE_DIRS = [
 
 # --- Plugin Discovery and Loading ---
 
-def load_plugin_from_module(module: ModuleType, module_name: str, category: str, router: "Router") -> Any:
+def load_plugin_from_module(module: ModuleType, module_name: str, category: str, router: "Router" = None) -> Any:
     """
     Attempts to load a plugin from a given module.
     It can be a class-based plugin or a functional one.
     """
+    found_plugins = []
+    
     # Check for class-based plugins first
     for name, obj in inspect.getmembers(module, inspect.isclass):
-        if issubclass(obj, BaseTool) and obj is not BaseTool:
-            try:
-                # Check if the constructor requires a 'router' argument
-                sig = inspect.signature(obj.__init__)
-                if 'router' in sig.parameters:
-                    return obj(router=router)
-                else:
-                    return obj()
-            except Exception:
-                # Could fail if __init__ has other required args
-                # Optional: log this error
-                # print(f"Could not instantiate class-based plugin '{name}': {e}")
-                pass
+        # We check for BaseTool for tools, but channels might use a different base class or just be classes
+        if category == "tools":
+            if issubclass(obj, BaseTool) and obj is not BaseTool:
+                try:
+                    # Check if the constructor requires specific arguments
+                    sig = inspect.signature(obj.__init__)
+                    kwargs = {}
+                    if 'router' in sig.parameters and router:
+                        kwargs['router'] = router
+                    if 'scheduler' in sig.parameters and router and hasattr(router, 'scheduler_manager'):
+                        kwargs['scheduler'] = router.scheduler_manager
+                    
+                    found_plugins.append(obj(**kwargs))
+                except Exception:
+                    pass
+        elif category == "channels":
+            # For channels, we just want the class itself so it can be instantiated later by the Kernel
+            from src.interfaces.channel import BaseChannel
+            if issubclass(obj, BaseChannel) and obj is not BaseChannel:
+                found_plugins.append(obj)
 
-    # Check for functional plugins (a module with a 'run' function)
-    if hasattr(module, 'run') and callable(module.run):
+    if found_plugins:
+        return found_plugins if len(found_plugins) > 1 else found_plugins[0]
+
+    # Check for functional plugins (a module with a 'run' function) - only for tools
+    if category == "tools" and hasattr(module, 'run') and callable(module.run):
         # Create a simple object to represent the functional plugin
         plugin_obj = type(f"{module_name}_plugin", (), {
             'name': module_name,
             'description': inspect.getdoc(module.run) or "No description provided.",
             'category': category,
             'is_enabled': lambda: True, # Functional tools are enabled by default
-            'run': module.run
+            'run': module.run,
+            'execute': lambda self, **kwargs: module.run(**kwargs)
         })()
         return plugin_obj
     
     return None
 
-def get_all_plugins(router: "Router") -> Dict[str, List[Any]]:
+def get_all_plugins(router: "Router" = None) -> Dict[str, List[Any]]:
     """
     Scans predefined plugin directories, dynamically imports modules,
     and discovers all valid plugins (both class-based and functional).
@@ -73,35 +86,40 @@ def get_all_plugins(router: "Router") -> Dict[str, List[Any]]:
             if category not in all_plugins:
                 continue
 
-            for module_loader, name, ispkg in pkgutil.walk_packages([str(category_dir)]):
+            # We use walk_packages to find all modules in the category directory
+            # We need to set the prefix to ensure correct relative imports if any
+            prefix = f"src.plugins.{category}."
+            if base_dir.name == "custom":
+                prefix = f"src.custom.{category}."
+                
+            for module_loader, name, ispkg in pkgutil.walk_packages([str(category_dir)], prefix=prefix):
                 if ispkg:
                     continue
 
                 try:
-                    spec = module_loader.find_spec(name)
-                    if not spec or not spec.loader:
-                        continue
-                    
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
+                    # name is e.g. "src.plugins.tools.memory.notebook"
+                    module = importlib.import_module(name)
                     
                     module_short_name = name.split('.')[-1]
                     plugin = load_plugin_from_module(module, module_short_name, category, router)
                     if plugin:
-                        all_plugins[category].append(plugin)
+                        if isinstance(plugin, list):
+                            all_plugins[category].extend(plugin)
+                        else:
+                            all_plugins[category].append(plugin)
                         
-                except Exception:
+                except Exception as e:
                     # Optional: log errors for debugging plugin loading issues
-                    # print(f"Could not load plugin '{name}' from '{category}': {e}")
+                    # print(f"Error loading {name}: {e}")
                     pass
 
     # Sort plugins by name for consistent ordering
     for category in all_plugins:
-        all_plugins[category].sort(key=lambda p: p.name)
+        all_plugins[category].sort(key=lambda p: getattr(p, 'name', getattr(p, '__name__', str(p))))
 
     return all_plugins
 
-def find_plugin(name: str, plugin_type: str, router: "Router") -> Any | None:
+def find_plugin(name: str, plugin_type: str, router: "Router" = None) -> Any | None:
     """
     Finds a specific plugin by name within a given type (category).
     """

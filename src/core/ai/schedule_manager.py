@@ -11,8 +11,8 @@ from rich.console import Console
 if TYPE_CHECKING:
     from src.core.ai.router import Router
 
-DATA_DIR = Path("data")
-DATABASE_URL = f"sqlite:///{DATA_DIR.resolve()}/scheduler.sqlite"
+from src.core.paths import DATA_ROOT
+DATABASE_URL = f"sqlite:///{DATA_ROOT.resolve()}/scheduler.sqlite"
 
 def execute_scheduled_task(router: "Router", task_description: str):
     """
@@ -30,12 +30,12 @@ def execute_scheduled_task(router: "Router", task_description: str):
 class SchedulerManager:
     """Manages all scheduling operations with a persistent backend."""
     def __init__(self):
-        DATA_DIR.mkdir(exist_ok=True)
+        DATA_ROOT.mkdir(exist_ok=True)
         self.scheduler = AsyncIOScheduler(
             jobstores={"default": SQLAlchemyJobStore(url=DATABASE_URL)},
             job_defaults={"misfire_grace_time": 60 * 15},
         )
-        self.router: Router | None = None
+        self.router: Any = None
         self.console = Console()
 
     def start(self, router: "Router"):

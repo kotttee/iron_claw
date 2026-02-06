@@ -13,11 +13,17 @@ DATA_ROOT = BASE_DIR / "data"
 # ~/.iron_claw/data/configs/
 CONFIGS_DIR = DATA_ROOT / "configs"
 
+# ~/.iron_claw/data/config.json
+CONFIG_PATH = DATA_ROOT / "config.json"
+
 # ~/.iron_claw/data/identity/
 IDENTITY_DIR = DATA_ROOT / "identity"
 
 # ~/.iron_claw/data/memory.json
 MEMORY_PATH = DATA_ROOT / "memory.json"
+
+# ~/.iron_claw/data/history.json
+HISTORY_PATH = DATA_ROOT / "history.json"
 
 # Project root, for project-level files like providers.json
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()

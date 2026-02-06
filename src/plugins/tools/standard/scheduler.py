@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, model_validator
 from src.interfaces.tool import BaseTool
 
 if TYPE_CHECKING:
-    from src.core.ai.router import Router
     from src.core.ai.schedule_manager import SchedulerManager
 
 class ScheduleTaskArgs(BaseModel):
@@ -29,19 +28,14 @@ class ScheduleTaskTool(BaseTool):
     The task_description should be a complete instruction for the AI,
     e.g., 'Write a morning summary of tech news'.
     """
-    def __init__(self, router: "Router"):
+    def __init__(self, scheduler: "SchedulerManager"):
         super().__init__()
         # The scheduler is now managed by the ScheduleManager, which is initialized alongside the Router.
-        # We need a way to access it. Let's assume the main application passes it to the router or a central place.
-        # For now, we'll assume the router has a reference to the scheduler manager.
-        # This might require a change in how the application is wired up.
-        if not hasattr(router, 'scheduler_manager'):
-            raise AttributeError("The Router is not initialized with a SchedulerManager instance.")
-        self.scheduler: "SchedulerManager" = router.scheduler_manager
+        self.__dict__["scheduler"] = scheduler
 
     @property
     def name(self) -> str:
-        return "schedule_task"
+        return "standard/schedule_task"
 
     @property
     def description(self) -> str:
@@ -53,13 +47,14 @@ class ScheduleTaskTool(BaseTool):
 
     def execute(self, task_description: str, iso_timestamp: Optional[str] = None, cron_expression: Optional[str] = None) -> str:
         """Adds a job to the SchedulerManager."""
+        scheduler = self.__dict__["scheduler"]
         if iso_timestamp:
             try:
                 run_date = datetime.datetime.fromisoformat(iso_timestamp)
-                return self.scheduler.add_date_job(run_date, task_description)
+                return scheduler.add_date_job(run_date, task_description)
             except ValueError:
                 return "Error: Invalid ISO 8601 timestamp format. Please use YYYY-MM-DDTHH:MM:SS."
         elif cron_expression:
-            return self.scheduler.add_cron_job(cron_expression, task_description)
+            return scheduler.add_cron_job(cron_expression, task_description)
 
         return "Error: You must provide either a valid iso_timestamp or a cron_expression."

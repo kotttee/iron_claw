@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# --- IronClaw Bulletproof Bootstrap Installer (v3) ---
+# --- IronClaw Bulletproof Bootstrap Installer (v4) ---
 # Implements an aggressive dependency fix for Debian/Ubuntu systems.
 # Installs to a hidden directory ($HOME/.iron_claw).
+# Configures a systemd service for background operation.
 set -e # Stop on first error
 
 # --- Helpers & Constants ---
@@ -12,6 +13,9 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 PROJECT_DIR="$HOME/.iron_claw"
+RUNNER_SCRIPT="$PROJECT_DIR/ironclaw_runner.sh"
+SERVICE_NAME="iron_claw"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 info() { echo -e "${BLUE}$1${NC}"; }
 success() { echo -e "${GREEN}$1${NC}"; }
@@ -41,7 +45,6 @@ fi
 if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
     info "Debian/Ubuntu detected. Running preemptive dependency installation..."
     $SUDO_CMD apt-get update
-    # Install the full suite of tools needed for Python, Git, and compiling packages.
     $SUDO_CMD apt-get install -y python3.13-full python3.13-venv python3.13-dev git build-essential
     success "✔ Core system dependencies ensured."
 fi
@@ -82,7 +85,6 @@ success "✔ Python dependencies installed."
 
 # --- 4. Wrapper & Global Command ---
 info "\n--- Step 4: Installing Global 'ironclaw' Command ---"
-RUNNER_SCRIPT="$PROJECT_DIR/ironclaw_runner.sh"
 cat > "$RUNNER_SCRIPT" <<- EOL
 #!/bin/bash
 set -e
@@ -96,13 +98,47 @@ chmod +x "$RUNNER_SCRIPT"
 INSTALL_PATH="/usr/local/bin/ironclaw"
 warn "Attempting to create a symbolic link at '$INSTALL_PATH'. This may require sudo."
 if $SUDO_CMD ln -sf "$RUNNER_SCRIPT" "$INSTALL_PATH"; then
-    success "✔ IronClaw installed globally."
+    success "✔ IronClaw command installed globally."
 else
     error "Global installation failed. You can run the agent via '$RUNNER_SCRIPT'"
 fi
 
-# --- 5. Final Configuration ---
-info "\n--- Step 5: Final Configuration Check ---"
+# --- 5. Systemd Service Setup ---
+info "\n--- Step 5: Setting up systemd Service ---"
+if ! command -v systemctl &> /dev/null; then
+    warn "systemctl not found. Skipping systemd service installation."
+    warn "You can run the agent manually with 'ironclaw start' or 'ironclaw start -d'."
+else
+    warn "This step requires sudo to install the systemd service."
+    SERVICE_CONTENT="[Unit]
+Description=IronClaw AI Agent
+After=network.target
+
+[Service]
+User=$USER
+Group=$(id -gn $USER)
+WorkingDirectory=$PROJECT_DIR
+ExecStart=$RUNNER_SCRIPT start -d
+ExecStop=$RUNNER_SCRIPT stop
+Restart=on-failure
+PIDFile=/tmp/iron_claw.pid
+
+[Install]
+WantedBy=multi-user.target"
+
+    echo "$SERVICE_CONTENT" | $SUDO_CMD tee "$SERVICE_FILE" > /dev/null
+    $SUDO_CMD systemctl daemon-reload
+    $SUDO_CMD systemctl enable ${SERVICE_NAME}
+    success "✔ Systemd service '${SERVICE_NAME}' created and enabled."
+    info "You can manage the service with:"
+    info "  sudo systemctl start ${SERVICE_NAME}"
+    info "  sudo systemctl stop ${SERVICE_NAME}"
+    info "  sudo systemctl status ${SERVICE_NAME}"
+fi
+
+
+# --- 6. Final Configuration ---
+info "\n--- Step 6: Final Configuration Check ---"
 if [ ! -f "$PROJECT_DIR/data/config.json" ]; then
     warn "No configuration found. Running initial setup wizard..."
     $RUNNER_SCRIPT onboard
@@ -116,8 +152,12 @@ success "-------------------------------------------"
 success "  IronClaw Installation Complete!          "
 success "-------------------------------------------"
 info "You can now run the agent from any folder using:"
-info "  ironclaw start"
+info "  ironclaw start (manual)"
+info "  ironclaw stop (manual)"
+info "  ironclaw status (manual)"
 info "  ironclaw onboard"
 info "  ironclaw config"
 info "  ironclaw update"
+info "Or manage the background service with:"
+info "  sudo systemctl start ${SERVICE_NAME}"
 echo

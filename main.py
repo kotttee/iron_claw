@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+import time
+import sys
 
 import questionary
 import typer
@@ -15,6 +17,7 @@ from src.core.ai.router import Router
 from src.core.ai.onboarding import run_onboarding_session
 from src.core.ai.settings import SettingsManager
 from src.core.kernel import Kernel
+from src.core.paths import DATA_ROOT, BASE_DIR, ENV_PATH
 
 # --- App Setup ---
 app = typer.Typer(
@@ -24,10 +27,21 @@ app = typer.Typer(
 )
 console = Console()
 
+PID_DIR = Path(tempfile.gettempdir())
+PID_FILE = PID_DIR / "iron_claw.pid"
 
-def get_project_root() -> Path:
-    """Helper to find the project root directory."""
-    return Path(__file__).parent.resolve()
+
+def is_running():
+    """Check if the agent is running by checking the PID file."""
+    if not PID_FILE.exists():
+        return False
+    try:
+        pid = int(PID_FILE.read_text())
+        os.kill(pid, 0)  # Check if the process exists
+    except (ValueError, OSError):
+        return False
+    return True
+
 
 def update_provider():
     """Starts the interactive process to update the LLM provider."""
@@ -35,22 +49,92 @@ def update_provider():
     settings_manager = SettingsManager()
     settings_manager.configure_provider()
 
+
 # --- CLI Commands ---
 
 @app.command()
-def start():
+def start(
+    daemon: bool = typer.Option(False, "-d", "--daemon", help="Run the agent as a background daemon.")
+):
     """
     Starts the agent's asynchronous main loop via the Kernel.
     """
-    console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
+    if is_running():
+        console.print("[bold yellow]IronClaw agent is already running.[/bold yellow]")
+        raise typer.Exit()
+
+    if daemon:
+        console.print(Panel("🚀 [bold green]Starting IronClaw Agent in background[/bold green]"))
+        try:
+            # Detach the process
+            if os.fork() > 0:
+                sys.exit()
+
+            os.setsid()
+
+            if os.fork() > 0:
+                sys.exit()
+
+            # Write PID file
+            with open(PID_FILE, "w") as f:
+                f.write(str(os.getpid()))
+
+            # Redirect standard file descriptors
+            sys.stdout.flush()
+            sys.stderr.flush()
+            si = open(os.devnull, 'r')
+            so = open(os.devnull, 'a+')
+            se = open(os.devnull, 'a+')
+            os.dup2(si.fileno(), sys.stdin.fileno())
+            os.dup2(so.fileno(), sys.stdout.fileno())
+            os.dup2(se.fileno(), sys.stderr.fileno())
+
+            # Start the kernel
+            kernel = Kernel()
+            asyncio.run(kernel.start())
+
+        except Exception as e:
+            console.print(f"[bold red]Failed to start daemon: {e}[/bold red]")
+            raise typer.Exit(1)
+    else:
+        console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
+        try:
+            kernel = Kernel()
+            asyncio.run(kernel.start())
+        except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+            console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
+        except Exception as e:
+            console.print(f"[bold red]An error occurred during agent execution: {e}[/bold red]")
+            raise typer.Exit(1)
+
+
+@app.command()
+def stop():
+    """Stops the running IronClaw agent daemon."""
+    if not PID_FILE.exists():
+        console.print("[bold yellow]IronClaw agent is not running.[/bold yellow]")
+        raise typer.Exit()
+
     try:
-        kernel = Kernel()
-        asyncio.run(kernel.start())
-    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-        console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
-    except Exception as e:
-        console.print(f"[bold red]An error occurred during agent execution: {e}[/bold red]")
+        pid = int(PID_FILE.read_text())
+        os.kill(pid, 15)  # Send SIGTERM
+        PID_FILE.unlink()
+        console.print("[bold green]IronClaw agent stopped successfully.[/bold green]")
+    except (ValueError, OSError) as e:
+        console.print(f"[bold red]Failed to stop agent: {e}[/bold red]")
+        if PID_FILE.exists():
+            PID_FILE.unlink() # Clean up stale PID file
         raise typer.Exit(1)
+
+
+@app.command()
+def status():
+    """Checks the status of the IronClaw agent."""
+    if is_running():
+        pid = int(PID_FILE.read_text())
+        console.print(f"[bold green]IronClaw agent is running with PID: {pid}[/bold green]")
+    else:
+        console.print("[bold yellow]IronClaw agent is not running.[/bold yellow]")
 
 
 @app.command()
@@ -169,7 +253,7 @@ def config_command(
 @app.command()
 def update():
     """Safely updates the agent to the latest version from the main branch."""
-    project_root = get_project_root()
+    project_root = BASE_DIR
     console.rule("[bold blue]IronClaw Safe Update[/bold blue]")
 
     if not (project_root / ".git").is_dir():
@@ -187,8 +271,8 @@ def update():
         temp_dir = Path(temp_dir_str)
         console.print("📦 Backing up user data...")
         backup_paths = {
-            "data": project_root / "data",
-            ".env": project_root / ".env",
+            "data": DATA_ROOT,
+            ".env": ENV_PATH,
         }
         for name, path in backup_paths.items():
             if path.exists():
@@ -210,7 +294,8 @@ def update():
             subprocess.run(
                 ["git", "reset", "--hard", "origin/main"],
                 check=True,
-                cwd=project_root,
+                cwd=-
+                project_root,
                 capture_output=True,
             )
 

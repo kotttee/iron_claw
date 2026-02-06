@@ -1,31 +1,29 @@
 from pathlib import Path
-import json
 
-# Define paths relative to the project structure
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
-DATA_DIR = PROJECT_ROOT / "data"
-CONFIG_PATH = DATA_DIR / "config.json"
-IDENTITY_DIR = DATA_DIR / "identity"
+from src.core.paths import IDENTITY_DIR
+
 
 class IdentityManager:
     """
-    Manages the AI's persona and the user's profile markdown files.
+    Manages the AI's persona, the user's profile, and preferences markdown files.
     """
     def __init__(self):
         self.identity_dir = IDENTITY_DIR
         self.ai_persona_path = self.identity_dir / "ai.md"
         self.user_profile_path = self.identity_dir / "user.md"
+        self.preferences_path = self.identity_dir / "preferences.md"
 
-    def run(self, ai_persona: str, user_profile: str, preferences: str = None) -> str:
+    def run(self, ai_persona: str, user_profile: str, preferences: str) -> str:
         """
-        Writes the AI persona and user profile to their respective files.
-        The 'preferences' argument is kept for compatibility but is no longer used.
+        Writes the AI persona, user profile, and preferences to their respective files.
         """
         try:
             self.identity_dir.mkdir(parents=True, exist_ok=True)
             self.ai_persona_path.write_text(ai_persona, encoding="utf-8")
             self.user_profile_path.write_text(user_profile, encoding="utf-8")
-            return "✅ AI Persona and User Profile saved successfully."
+            self.preferences_path.write_text(preferences, encoding="utf-8")
+
+            return "✅ AI Persona, User Profile, and Preferences saved successfully."
         except Exception as e:
             return f"Error saving identity files: {e}"
 
@@ -51,17 +49,12 @@ class IdentityManager:
                 prompt_parts.append("=== USER PROFILE ===")
                 prompt_parts.append(user_profile)
 
-        # Load preferences from config.json
-        if CONFIG_PATH.exists():
-            try:
-                config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-                if "preferences" in config and config["preferences"]:
-                    prefs = config["preferences"]
-                    pref_str = f"Timezone: {prefs.get('timezone', 'Not set')}\nVerbosity: {prefs.get('verbosity', 'Not set')}"
-                    prompt_parts.append("=== SYSTEM PREFERENCES ===")
-                    prompt_parts.append(pref_str)
-            except (json.JSONDecodeError, IOError):
-                # Ignore if config is malformed or unreadable
-                pass
+        # Load preferences from preferences.md
+        preferences_path = IDENTITY_DIR / "preferences.md"
+        if preferences_path.exists():
+            preferences = preferences_path.read_text(encoding="utf-8").strip()
+            if preferences:
+                prompt_parts.append("=== SYSTEM PREFERENCES ===")
+                prompt_parts.append(preferences)
 
         return "\n".join(prompt_parts)

@@ -1,11 +1,13 @@
 from dotenv import load_dotenv, get_key
 import os
+import json
 import inspect
 
 from ..providers import provider_factory
 from ..context_manager import ContextManager
-from ..plugin_manager import get_all_plugins, find_plugin
+from ..plugin_manager import get_all_plugins
 from .identity_manager import IdentityManager
+from .schedule_manager import SchedulerManager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,9 +21,10 @@ class Router:
     def __init__(self):
         """Initializes the Router and its components."""
         self.context_manager = ContextManager()
+        self.scheduler_manager = SchedulerManager()
         self.provider = self._initialize_provider()
+        self.plugin_manager = get_all_plugins(router=self)
         self.system_prompt = self._build_system_prompt()
-        self.plugin_manager = get_all_plugins()
         self.active_channels = []
 
     def register_channel(self, channel):
@@ -61,11 +64,15 @@ class Router:
         if enabled_tools:
             for tool_plugin in enabled_tools:
                 try:
-                    module = inspect.getmodule(tool_plugin)
-                    if hasattr(module, 'run') and callable(module.run):
-                        docstring = inspect.getdoc(module.run)
-                        if docstring:
-                            tool_definitions.append(f"- {tool_plugin.name}: {docstring.strip()}")
+                    if hasattr(tool_plugin, 'description') and tool_plugin.description:
+                        tool_definitions.append(f"- {tool_plugin.name}: {tool_plugin.description.strip()}")
+                    else:
+                        # Fallback for functional tools or others if description is missing
+                        module = inspect.getmodule(tool_plugin)
+                        if hasattr(module, 'run') and callable(module.run):
+                            docstring = inspect.getdoc(module.run)
+                            if docstring:
+                                tool_definitions.append(f"- {tool_plugin.name}: {docstring.strip()}")
                 except Exception:
                     pass
 
@@ -98,22 +105,43 @@ class Router:
     def handle_scheduled_event(self, event_instruction: str):
         """
         Handles a scheduled event by generating content and sending it to the
-        preferred channel.
+        preferred channel. Supports tool execution.
         """
         print(f"Handling scheduled event: {event_instruction}")
         
-        system_prompt = "You are executing a scheduled task. Generate a response based on the following instruction."
+        system_prompt = self.system_prompt + "\n\nYou are executing a scheduled task. Follow the instructions and use tools if necessary."
         
         model_name = get_key(os.environ.get("ENV_PATH", ".env"), "LLM_MODEL")
         if not model_name:
             raise ValueError("LLM_MODEL not found in .env.")
 
-        # Generate content using the LLM
-        response_text = self.provider.chat(
-            model=model_name,
-            messages=[{"role": "user", "content": event_instruction}],
-            system_prompt=system_prompt
-        )
+        messages = [{"role": "user", "content": f"Scheduled Task: {event_instruction}"}]
+        
+        # Tool execution loop for scheduled events
+        max_iterations = 5
+        response_text = ""
+        
+        for i in range(max_iterations):
+            response_text = self.provider.chat(
+                model=model_name,
+                messages=messages,
+                system_prompt=system_prompt
+            )
+            
+            messages.append({"role": "assistant", "content": response_text})
+            
+            tool_call = self._parse_tool_call(response_text)
+            if tool_call:
+                tool_name = tool_call.get("tool")
+                tool_args = tool_call.get("args", {})
+                
+                print(f"Router (Scheduled): Executing tool '{tool_name}'")
+                tool_result = self._execute_tool(tool_name, tool_args)
+                
+                messages.append({"role": "user", "content": f"[TOOL RESULT for {tool_name}]: {tool_result}"})
+                continue
+            else:
+                break
 
         # Save the interaction to history
         self.context_manager.add_message("user", f"Scheduled Task: {event_instruction}")
@@ -152,23 +180,92 @@ class Router:
 
     def process_message(self, user_message: str, source: str) -> str:
         """
-        Processes a user's message through the full chat pipeline.
+        Processes a user's message through the full chat pipeline, including tool execution.
         """
         if not user_message:
             return "Input cannot be empty."
 
         self.context_manager.add_message("user", user_message)
-        full_history = self.context_manager.history
         
         model_name = get_key(os.environ.get("ENV_PATH", ".env"), "LLM_MODEL")
         if not model_name:
             raise ValueError("LLM_MODEL not found in .env. Please run setup.py.")
 
-        assistant_response = self.provider.chat(
-            model=model_name,
-            messages=full_history,
-            system_prompt=self.system_prompt
-        )
+        # Tool execution loop
+        max_iterations = 5
+        for i in range(max_iterations):
+            full_history = self.context_manager.history
+            assistant_response = self.provider.chat(
+                model=model_name,
+                messages=full_history,
+                system_prompt=self.system_prompt
+            )
 
-        self.context_manager.add_message("assistant", assistant_response)
-        return assistant_response
+            self.context_manager.add_message("assistant", assistant_response)
+
+            # Check for tool call
+            tool_call = self._parse_tool_call(assistant_response)
+            if tool_call:
+                tool_name = tool_call.get("tool")
+                tool_args = tool_call.get("args", {})
+                
+                print(f"Router: Executing tool '{tool_name}' with args {tool_args}")
+                tool_result = self._execute_tool(tool_name, tool_args)
+                print(f"Router: Tool result: {tool_result}")
+                
+                # Add tool result to context as a system message (or user message acting as system)
+                self.context_manager.add_message("user", f"[TOOL RESULT for {tool_name}]: {tool_result}")
+                # Continue the loop to let the LLM see the result
+                continue
+            else:
+                # No tool call, final response
+                return assistant_response
+
+        return "Max tool execution iterations reached."
+
+    def _parse_tool_call(self, text: str) -> dict | None:
+        """
+        Attempts to find and parse a JSON tool call in the text.
+        """
+        try:
+            # Look for something that looks like {"tool": ...}
+            # This is a simple heuristic; a more robust one might use regex or a real parser
+            start_idx = text.find('{"tool":')
+            if start_idx == -1:
+                return None
+            
+            # Find the matching closing brace
+            brace_count = 0
+            for j in range(start_idx, len(text)):
+                if text[j] == '{':
+                    brace_count += 1
+                elif text[j] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_str = text[start_idx:j+1]
+                        return json.loads(json_str)
+        except Exception:
+            pass
+        return None
+
+    def _execute_tool(self, tool_name: str, args: dict) -> str:
+        """
+        Finds and executes the specified tool.
+        """
+        enabled_tools = [p for p in self.plugin_manager.get("tools", []) if p.is_enabled()]
+        tool = next((t for t in enabled_tools if t.name == tool_name), None)
+        
+        if not tool:
+            return f"Error: Tool '{tool_name}' not found or not enabled."
+
+        try:
+            # If it's a BaseTool (class-based), it has an execute method
+            if hasattr(tool, 'execute') and callable(tool.execute):
+                return str(tool.execute(**args))
+            # Fallback for functional tools (already wrapped in plugin_manager.py)
+            elif hasattr(tool, 'run') and callable(tool.run):
+                 return str(tool.run(**args))
+            else:
+                return f"Error: Tool '{tool_name}' is not executable."
+        except Exception as e:
+            return f"Error executing tool '{tool_name}': {e}"

@@ -6,11 +6,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-# Define paths relative to the project structure
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
-DATA_DIR = PROJECT_ROOT / "data"
-CONFIG_PATH = DATA_DIR / "config.json"
-PROVIDERS_PATH = DATA_DIR / "providers.json"
+from src.core.paths import CONFIG_PATH, PROVIDERS_JSON_PATH
+
 
 console = Console()
 
@@ -38,13 +35,13 @@ class SettingsManager:
 
     def _load_providers_config(self) -> Dict[str, Any]:
         """Loads the provider definitions from providers.json."""
-        if not PROVIDERS_PATH.exists():
-            console.print(f"[bold red]Error: Provider definition file not found at {PROVIDERS_PATH}[/bold red]")
+        if not PROVIDERS_JSON_PATH.exists():
+            console.print(f"[bold red]Error: Provider definition file not found at {PROVIDERS_JSON_PATH}[/bold red]")
             return {}
         try:
-            return json.loads(PROVIDERS_PATH.read_text(encoding="utf-8"))
+            return json.loads(PROVIDERS_JSON_PATH.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            console.print(f"[bold red]Error: Could not parse {PROVIDERS_PATH}.[/bold red]")
+            console.print(f"[bold red]Error: Could not parse {PROVIDERS_JSON_PATH}.[/bold red]")
             return {}
 
     def configure_provider(self) -> bool:

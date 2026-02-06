@@ -2,11 +2,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any
 
-# Define paths relative to this file
-DATA_ROOT = Path(__file__).parent.parent.parent / "data"
-MEMORY_DIR = DATA_ROOT / "memory"
-HISTORY_PATH = MEMORY_DIR / "short_term_history.json"
-CONFIG_PATH = DATA_ROOT / "config.json"
+from src.core.paths import MEMORY_PATH, HISTORY_PATH, CONFIG_PATH
 
 class ContextManager:
     """
@@ -16,7 +12,7 @@ class ContextManager:
     """
     def __init__(self):
         """Initializes the ContextManager, loading configuration and history."""
-        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        MEMORY_PATH.mkdir(parents=True, exist_ok=True)
         self.max_history_limit = self._get_limit_from_config()
         self.history = self.load_context()
 
