@@ -108,7 +108,7 @@ class Router:
             if channel.name == 'telegram' and channel.is_enabled():
                 admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
                 if admin_id:
-                    return channel, int(admin_id)
+                    return channel, admin_id
         
         return console_channel, None
 
