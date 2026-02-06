@@ -28,7 +28,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
     """
 
     def __init__(self):
-        super().__init__(name="telegram", category="channel")
+        super().__init__(name="telegram_bot", category="channel")
         self.bot: Bot | None = None
         self.admin_id: int | None = None
         self.console = Console()

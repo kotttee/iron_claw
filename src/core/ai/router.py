@@ -22,6 +22,15 @@ class Router:
         self.provider = self._initialize_provider()
         self.system_prompt = self._build_system_prompt()
         self.plugin_manager = get_all_plugins()
+        self.active_channels = []
+
+    def register_channel(self, channel):
+        """
+        Registers an active channel instance with the router.
+        """
+        if channel not in self.active_channels:
+            self.active_channels.append(channel)
+            print(f"Router: Registered channel {channel.name}")
 
     def _initialize_provider(self):
         """Initializes the LLM provider from .env settings."""
@@ -68,18 +77,23 @@ class Router:
         
         return base_prompt
 
-    def get_preferred_output_channel(self) -> dict:
+    def get_preferred_output_channel(self):
         """
-        Determines the preferred output channel based on enabled plugins.
-        Serves a single admin user.
+        Determines the preferred output channel based on active channels.
+        Returns the channel instance and target.
         """
-        telegram_plugin = find_plugin("telegram", plugin_type="channels")
-        if telegram_plugin and telegram_plugin.is_enabled():
-            admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
-            if admin_id:
-                return {'type': 'telegram', 'target': admin_id}
+        # Default to console
+        console_channel = next((c for c in self.active_channels if c.name == 'console'), None)
+
+        # Check for a network channel like Telegram, which is preferred
+        for channel in self.active_channels:
+            if channel.name == 'telegram' and channel.is_enabled():
+                admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
+                if admin_id:
+                    return channel, admin_id
         
-        return {'type': 'console', 'target': None}
+        return console_channel, None
+
 
     def handle_scheduled_event(self, event_instruction: str):
         """
@@ -110,26 +124,31 @@ class Router:
 
     def _send_to_channel(self, text: str):
         """
-        Sends a message to the preferred output channel.
+        Sends a message to the preferred output channel using a registered instance.
         """
-        channel_info = self.get_preferred_output_channel()
-        channel_type = channel_info['type']
-        target = channel_info['target']
+        channel_instance, target = self.get_preferred_output_channel()
 
-        if channel_type == 'console':
-            print(f"Output (Console): {text}")
+        if not channel_instance:
+            print("Error: No active/preferred output channel found.")
             return
 
-        # Find the channel plugin and send the message
-        channel_plugin = find_plugin(channel_type, plugin_type="channels")
-        if channel_plugin and hasattr(channel_plugin, 'send_message'):
+        if channel_instance.name == 'console':
+            # Console channel might just print, or have a send_message method
+            if hasattr(channel_instance, 'send_message') and callable(getattr(channel_instance, 'send_message')):
+                 channel_instance.send_message(text)
+            else:
+                 print(f"Output (Console): {text}")
+            return
+
+        if hasattr(channel_instance, 'send_message') and callable(getattr(channel_instance, 'send_message')):
             try:
-                channel_plugin.send_message(text, target)
-                print(f"Message sent via {channel_type} to {target}.")
+                channel_instance.send_message(text, target)
+                print(f"Message sent via {channel_instance.name} to {target}.")
             except Exception as e:
-                print(f"Error sending message via {channel_type}: {e}")
+                print(f"Error sending message via {channel_instance.name}: {e}")
         else:
-            print(f"Could not find or use channel plugin: {channel_type}")
+            print(f"Could not find or use send_message on channel instance: {channel_instance.name}")
+
 
     def process_message(self, user_message: str, source: str) -> str:
         """

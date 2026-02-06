@@ -1,99 +1,79 @@
 import asyncio
-import json
-from pathlib import Path
-from typing import Any, Dict
-
 from rich.console import Console
-
 from src.core.ai.router import Router
-from src.core.scheduler import SchedulerManager
 from src.core.plugin_manager import get_all_plugins
-from src.interfaces.channel import BaseChannel
+
+console = Console()
 
 class Kernel:
     """
-    The core of the IronClaw agent.
-
-    This class is responsible for initializing all components (Router, Scheduler),
-    running the main event loop for all active channels, and handling graceful shutdown.
-    It is the central nervous system of the application.
+    The Kernel is the core of the IronClaw agent. It initializes all components,
+    manages the main event loop, and orchestrates the interactions between plugins.
     """
 
-    def __init__(self, config_path: Path):
-        """
-        Initializes the Kernel and all its core components.
-        
-        Args:
-            config_path: The path to the main `config.json` file.
-        """
-        self.console = Console()
-        self.config_path = config_path
-        self.config: Dict[str, Any] = self._load_config()
-        
-        # Initialize core components
-        self.scheduler = SchedulerManager()
-        self.router = Router(self.config, self.scheduler)
-        
-        # Start the scheduler and link it to the router
-        self.scheduler.start(self.router)
-
-    def _load_config(self) -> Dict[str, Any]:
-        """Loads and validates the main JSON configuration file."""
-        if not self.config_path.exists():
-            self.console.print(f"[bold red]Error: Config file not found at '{self.config_path}'.[/bold red]")
-            self.console.print("Please run [bold cyan]ironclaw setup[/bold cyan] first.")
-            raise FileNotFoundError("Configuration file is missing.")
-        
+    def __init__(self):
+        """Initializes the Kernel, Router, and Plugin Manager."""
+        console.print("[bold cyan]Kernel: Initializing...[/bold cyan]")
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            self.console.print(f"[bold red]Error reading or parsing config file: {e}[/bold red]")
-            raise ValueError("Configuration file is corrupted or unreadable.") from e
+            self.router = Router()
+            self.plugin_manager = get_all_plugins()
+        except Exception as e:
+            console.print(f"[bold red]Kernel Error: Failed to initialize components: {e}[/bold red]")
+            raise
 
-    async def _run_main_loop(self):
-        """The main asynchronous event loop that runs all enabled channels."""
-        all_plugin_classes = get_all_plugins(BaseChannel, "channels")
-        all_plugins = {p().plugin_id: p for p in all_plugin_classes}
+    async def start(self):
+        """
+        Starts the main asynchronous loop, activating all enabled channel plugins.
+        """
+        console.print("[bold green]Kernel: Starting main loop...[/bold green]")
+        
+        channel_plugins = [
+            p for p in self.plugin_manager.get("channels", []) if p.is_enabled()
+        ]
 
-        tasks = []
-        enabled_channels = self.config.get("channels", {})
-        if not enabled_channels:
-            self.console.print("[bold yellow]Warning: No channels are enabled in the configuration.[/bold yellow]")
+        if not channel_plugins:
+            console.print("[bold yellow]Kernel Warning: No enabled channel plugins found. Agent will be idle.[/bold yellow]")
             return
 
-        for plugin_id, plugin_config in enabled_channels.items():
-            if plugin_class := all_plugins.get(plugin_id):
-                channel_instance = plugin_class()
-                self.router.register_channel(channel_instance) # Let the router know about the active channel
-                tasks.append(asyncio.create_task(channel_instance.start(plugin_config, self.router)))
+        active_channel_instances = []
+        for plugin_module in channel_plugins:
+            # A convention to derive class name from module name, e.g., console.py -> ConsoleChannel
+
+            if hasattr(plugin_module, "name"):
+                channel_class = getattr(plugin_module, "name")
+                
+                # Pass the router instance to the channel constructor
+                try:
+                    channel_instance = channel_class(self.router)
+                    self.router.register_channel(channel_instance)
+                    active_channel_instances.append(channel_instance)
+                    console.print(f"Kernel: Initialized and registered channel '{plugin_module.name}'.")
+                except TypeError:
+                    # Fallback for channels that don't need the router at init
+                    try:
+                        channel_instance = channel_class()
+                        self.router.register_channel(channel_instance)
+                        active_channel_instances.append(channel_instance)
+                        console.print(f"Kernel: Initialized and registered channel '{plugin_module.name}' (without router injection).")
+                    except Exception as e:
+                        console.print(f"[red]Kernel Error: Failed to create instance of {plugin_module.name}: {e}[/red]")
+                except Exception as e:
+                    console.print(f"[red]Kernel Error: Failed to create instance of {plugin_module.name}: {e}[/red]")
             else:
-                self.console.print(f"[bold red]Warning: Configured plugin '{plugin_id}' not found.[/bold red]")
-        
-        if not tasks:
-            self.console.print("[bold red]Error: No valid channels could be started.[/bold red]")
+                console.print(f"[red]Kernel Error: Could not find class '{plugin_module.name}' in plugin '{plugin_module.name}'.[/red]")
+
+        if not active_channel_instances:
+            console.print("[bold red]Kernel Error: No channel instances were successfully created. Aborting.[/bold red]")
             return
 
-        self.console.rule("[bold green]IronClaw Agent is Running[/bold green]")
-        await asyncio.gather(*tasks)
-
-    def run(self):
-        """
-        Starts the agent's main lifecycle. This is the primary entry point.
-        It initializes, runs the main loop, and handles shutdown.
-        """
-        self.console.rule("[bold blue]IronClaw Kernel Initializing[/bold blue]")
-        try:
-            self.console.print("Agent is running... Press Ctrl+C to stop.")
-            asyncio.run(self._run_main_loop())
-        except KeyboardInterrupt:
-            self.console.print("\n") # Move to the next line after Ctrl+C
-        finally:
-            self.shutdown()
-
-    def shutdown(self):
-        """Performs a graceful shutdown of all kernel components."""
-        self.console.rule("[bold magenta]Kernel Shutting Down[/bold magenta]")
-        self.scheduler.stop()
-        self.console.print("[green]✔ Scheduler shut down gracefully.[/green]")
-        self.console.print("Goodbye.")
+        # Start all channel tasks
+        tasks = []
+        for channel in active_channel_instances:
+            if hasattr(channel, 'start') and callable(channel.start):
+                tasks.append(asyncio.create_task(channel.start()))
+        
+        if tasks:
+            console.print(f"[cyan]Kernel: Running {len(tasks)} channel task(s). Press Ctrl+C to stop.[/cyan]")
+            await asyncio.gather(*tasks)
+        else:
+            console.print("[yellow]Kernel Warning: No startable channel tasks were found.[/yellow]")

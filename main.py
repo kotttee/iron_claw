@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 import subprocess
@@ -13,6 +14,7 @@ from rich.panel import Panel
 from src.core.ai.router import Router
 from src.core.ai.onboarding import run_onboarding_session
 from src.core.ai.settings import SettingsManager
+from src.core.kernel import Kernel
 
 # --- App Setup ---
 app = typer.Typer(
@@ -34,6 +36,21 @@ def update_provider():
     settings_manager.configure_provider()
 
 # --- CLI Commands ---
+
+@app.command()
+def start():
+    """
+    Starts the agent's asynchronous main loop via the Kernel.
+    """
+    console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
+    try:
+        kernel = Kernel()
+        asyncio.run(kernel.start())
+    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
+        console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
+    except Exception as e:
+        console.print(f"[bold red]An error occurred during agent execution: {e}[/bold red]")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -66,9 +83,7 @@ def talk():
                 continue
 
             with console.status("[yellow]Thinking...[/yellow]", spinner="dots"):
-                router.context_manager.add_message("user", user_input)
-                response = router.provider.chat(router.context_manager.get_messages())
-                router.context_manager.add_message("assistant", response)
+                response = router.process_message(user_input, source="console")
 
             console.print(Markdown(response))
 
