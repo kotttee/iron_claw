@@ -140,7 +140,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             system_text = f"[SYSTEM EVENT: User sent a DOCUMENT. Filename: {doc.file_name}. File ID: {doc.file_id}]"
             await self._process_with_typing(message, router, system_text)
 
-    def send_message(self, text: str, target: str):
+    def send_reply(self, text: str, target: str):
         """Sends a message to the target user. Required by the Router."""
         if not self.bot:
             logger.error("Cannot send message, bot is not initialized.")

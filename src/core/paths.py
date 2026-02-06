@@ -10,8 +10,8 @@ ENV_PATH = BASE_DIR / ".env"
 # ~/.iron_claw/data/
 DATA_ROOT = BASE_DIR / "data"
 
-# ~/.iron_claw/data/configs/
-CONFIGS_DIR = DATA_ROOT / "configs"
+# ~/.iron_claw/data/plugins/
+PLUGINS_DIR = DATA_ROOT / "plugins"
 
 # ~/.iron_claw/data/config.json
 CONFIG_PATH = DATA_ROOT / "config.json"
@@ -19,11 +19,14 @@ CONFIG_PATH = DATA_ROOT / "config.json"
 # ~/.iron_claw/data/identity/
 IDENTITY_DIR = DATA_ROOT / "identity"
 
-# ~/.iron_claw/data/memory.json
-MEMORY_PATH = DATA_ROOT / "memory.json"
+# ~/.iron_claw/data/memory/
+MEMORY_DIR = DATA_ROOT / "memory"
 
-# ~/.iron_claw/data/history.json
-HISTORY_PATH = DATA_ROOT / "history.json"
+# ~/.iron_claw/data/memory/history.json
+HISTORY_PATH = MEMORY_DIR / "history.json"
+
+# ~/.iron_claw/data/memory/messages.json
+MESSAGES_PATH = MEMORY_DIR / "messages.json"
 
 # Project root, for project-level files like providers.json
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
@@ -34,9 +37,9 @@ PROVIDERS_JSON_PATH = PROJECT_ROOT / "providers.json"
 # /path/to/project/src/custom
 CUSTOM_PLUGINS_DIR = PROJECT_ROOT / "src" / "custom"
 
-def ensure_dirs():
-    """Create all necessary directories if they don't exist."""
-    BASE_DIR.mkdir(exist_ok=True)
-    DATA_ROOT.mkdir(exist_ok=True)
-    CONFIGS_DIR.mkdir(exist_ok=True)
-    IDENTITY_DIR.mkdir(exist_ok=True)
+"""Create all necessary directories if they don't exist."""
+BASE_DIR.mkdir(exist_ok=True)
+DATA_ROOT.mkdir(exist_ok=True)
+PLUGINS_DIR.mkdir(exist_ok=True)
+IDENTITY_DIR.mkdir(exist_ok=True)
+MEMORY_DIR.mkdir(exist_ok=True)

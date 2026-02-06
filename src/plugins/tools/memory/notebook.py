@@ -4,14 +4,13 @@ from typing import Type
 from pydantic import BaseModel, Field
 
 from src.interfaces.tool import BaseTool
+from src.core.paths import MEMORY_DIR
 
 # --- File Naming Standard ---
-MEMORY_DIR = Path("data/memory")
 NOTEBOOK_PATH = MEMORY_DIR / "memory.md"
 
 def _ensure_file_exists():
     """Private helper to ensure the memory file and directory exist."""
-    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     if not NOTEBOOK_PATH.exists():
         NOTEBOOK_PATH.touch()
 

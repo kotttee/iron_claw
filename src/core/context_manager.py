@@ -2,83 +2,101 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any
 
-from src.core.paths import MEMORY_PATH, HISTORY_PATH, CONFIG_PATH
+from src.core.paths import MESSAGES_PATH, HISTORY_PATH, CONFIG_PATH
 
 class ContextManager:
     """
-    Manages the shared short-term conversation history.
-    It ensures that the context does not exceed a configurable limit and
-    persists the history to a JSON file.
+    Manages the shared short-term (messages) and long-term (history) conversation context.
+    It ensures that the contexts do not exceed their configured limits and
+    persists them to their respective JSON files.
     """
     def __init__(self):
-        """Initializes the ContextManager, loading configuration and history."""
-        MEMORY_PATH.mkdir(parents=True, exist_ok=True)
-        self.max_history_limit = self._get_limit_from_config()
-        self.history = self.load_context()
+        """Initializes the ContextManager, loading configuration and contexts."""
+        self.max_messages_limit = self._get_limit_from_config()
+        self.max_history_limit = 100  # Fixed limit for long-term history
+
+        self.messages = self._load_context(MESSAGES_PATH)
+        self.history = self._load_context(HISTORY_PATH)
 
     def _get_limit_from_config(self) -> int:
-        """Loads the history limit from the main config file."""
+        """Loads the messages limit from the main config file."""
         try:
             if CONFIG_PATH.exists():
                 config_data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+                # Using "max_history_limit" to maintain compatibility with existing configs
                 return int(config_data.get("max_history_limit", 20))
         except (json.JSONDecodeError, ValueError):
-            pass # Fallback to default if file is corrupt or value is invalid
+            pass  # Fallback to default if file is corrupt or value is invalid
         return 20
 
-    def load_context(self) -> List[Dict[str, Any]]:
+    def _load_context(self, path: Path) -> List[Dict[str, Any]]:
         """
-        Loads the conversation history from the JSON file.
+        Loads a conversation context from a JSON file.
         Returns an empty list if the file doesn't exist or is invalid.
         """
-        if not HISTORY_PATH.exists():
+        if not path.exists():
             return []
         try:
-            return json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+            content = path.read_text(encoding="utf-8")
+            if not content:
+                return []
+            return json.loads(content)
         except (json.JSONDecodeError, TypeError):
             return []
 
-    def _save_context(self):
-        """Saves the current history list to the JSON file."""
+    def _save_messages(self):
+        """Saves the current messages list to its JSON file."""
+        MESSAGES_PATH.write_text(json.dumps(self.messages, indent=4), encoding="utf-8")
+
+    def _save_history(self):
+        """Saves the current history list to its JSON file."""
         HISTORY_PATH.write_text(json.dumps(self.history, indent=4), encoding="utf-8")
 
     def add_message(self, role: str, content: str):
         """
-        Adds a new message to the history and enforces the history limit.
-        The history is immediately saved after the message is added.
+        Adds a new message to both messages and history, enforces their respective limits,
+        and saves them.
         """
         if not isinstance(role, str) or not isinstance(content, str):
-            return # Basic type safety
+            return  # Basic type safety
 
-        self.history.append({"role": role, "content": content})
+        new_message = {"role": role, "content": content}
 
-        # Enforce the history limit
+        # Add to messages (short-term) and enforce limit
+        self.messages.append(new_message)
+        if len(self.messages) > self.max_messages_limit:
+            self.messages = self.messages[-self.max_messages_limit:]
+
+        # Add to history (long-term) and enforce limit
+        self.history.append(new_message)
         if len(self.history) > self.max_history_limit:
             self.history = self.history[-self.max_history_limit:]
 
-        self._save_context()
+        self._save_messages()
+        self._save_history()
 
     def get_recent_display(self, n: int = 5) -> List[Dict[str, Any]]:
         """
-        Returns the last N messages for display purposes.
+        Returns the last N messages from the short-term context for display purposes.
         """
-        return self.history[-n:]
+        return self.messages[-n:]
 
     def update_limit(self, new_limit: int):
         """
-        Updates the max_history_limit in the main config.json file.
+        Updates the max_messages_limit in the main config.json file.
         """
         if not isinstance(new_limit, int) or new_limit < 0:
             return
 
-        self.max_history_limit = new_limit
+        self.max_messages_limit = new_limit
         
         config_data = {}
         if CONFIG_PATH.exists():
             try:
                 config_data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
-                pass # Start with a fresh dict if corrupt
+                pass  # Start with a fresh dict if corrupt
         
-        config_data["max_history_limit"] = self.max_history_limit
+        # Using "max_history_limit" to maintain compatibility with existing configs
+        config_data["max_history_limit"] = self.max_messages_limit
         CONFIG_PATH.write_text(json.dumps(config_data, indent=4), encoding="utf-8")

@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from dotenv import set_key, get_key
 
 # Refactored to use the centralized pathing system
-from .paths import CONFIGS_DIR, ENV_PATH, ensure_dirs
+from .paths import PLUGINS_DIR, ENV_PATH
 
 class ConfigurablePlugin(ABC):
     """
@@ -23,7 +23,10 @@ class ConfigurablePlugin(ABC):
             
         self.name = name
         self.category = category
-        self.config_path = CONFIGS_DIR / f"{self.name}.json"
+        # create path
+        self.directory = PLUGINS_DIR / self.name
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.config_path = self.directory / f"config.json"
         self.config: dict = {}
         self.load_config()
 
@@ -49,7 +52,6 @@ class ConfigurablePlugin(ABC):
         """
         Saves the current configuration dictionary to its JSON file.
         """
-        ensure_dirs()
         self.config_path.write_text(json.dumps(self.config, indent=4), encoding="utf-8")
 
     def is_enabled(self) -> bool:

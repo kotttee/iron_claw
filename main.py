@@ -18,6 +18,7 @@ from src.core.ai.onboarding import run_onboarding_session
 from src.core.ai.settings import SettingsManager
 from src.core.kernel import Kernel
 from src.core.paths import DATA_ROOT, BASE_DIR, ENV_PATH
+from src.plugins.channels.telegram_bot import TelegramBotChannel
 
 # --- App Setup ---
 app = typer.Typer(
@@ -50,6 +51,23 @@ def update_provider():
     settings_manager.configure_provider()
 
 
+def configure_channels():
+    """Interactive menu to configure communication channels."""
+    console.print(Panel("Channel Configuration", title="[bold cyan]📡 Channels[/bold cyan]"))
+    choice = questionary.select(
+        "Select a channel to configure:",
+        choices=["Telegram Bot", questionary.Separator(), "Back"]
+    ).ask()
+
+    if choice == "Telegram Bot":
+        try:
+            channel = TelegramBotChannel()
+            channel.setup_wizard()
+            console.print("[bold yellow]A restart is required for channel changes to take effect. Use `ironclaw restart`.[/bold yellow]")
+        except Exception as e:
+            console.print(f"[bold red]An error occurred during Telegram setup: {e}[/bold red]")
+
+
 # --- CLI Commands ---
 
 @app.command()
@@ -65,47 +83,52 @@ def start(
 
     if daemon:
         console.print(Panel("🚀 [bold green]Starting IronClaw Agent in background[/bold green]"))
+        # Use subprocess to detach the process cleanly
         try:
-            # Detach the process
-            if os.fork() > 0:
-                sys.exit()
-
-            os.setsid()
-
-            if os.fork() > 0:
-                sys.exit()
-
-            # Write PID file
+            p = subprocess.Popen(
+                [sys.executable, __file__, "start"],  # Re-run this script without the --daemon flag
+                close_fds=True,
+                # The following are for POSIX systems to truly detach
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+            )
             with open(PID_FILE, "w") as f:
-                f.write(str(os.getpid()))
-
-            # Redirect standard file descriptors
-            sys.stdout.flush()
-            sys.stderr.flush()
-            si = open(os.devnull, 'r')
-            so = open(os.devnull, 'a+')
-            se = open(os.devnull, 'a+')
-            os.dup2(si.fileno(), sys.stdin.fileno())
-            os.dup2(so.fileno(), sys.stdout.fileno())
-            os.dup2(se.fileno(), sys.stderr.fileno())
-
-            # Start the kernel
-            kernel = Kernel()
-            asyncio.run(kernel.start())
-
+                f.write(str(p.pid))
+            console.print(f"Daemon started with PID: {p.pid}")
+            raise typer.Exit()
         except Exception as e:
             console.print(f"[bold red]Failed to start daemon: {e}[/bold red]")
             raise typer.Exit(1)
     else:
-        console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
+        # This part runs in the foreground or as the actual daemon process
+        # Write PID file for the actual running process
+        with open(PID_FILE, "w") as f:
+            f.write(str(os.getpid()))
+        
+        if not os.isatty(sys.stdout.fileno()): # Don't print panel if in background
+            pass
+        else:
+            console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
+        
         try:
             kernel = Kernel()
             asyncio.run(kernel.start())
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
+            if os.isatty(sys.stdout.fileno()):
+                console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
         except Exception as e:
-            console.print(f"[bold red]An error occurred during agent execution: {e}[/bold red]")
+            # Log error to a file if running in background
+            if not os.isatty(sys.stdout.fileno()):
+                with open(DATA_ROOT / "error.log", "a") as f:
+                    f.write(f"{time.ctime()}: {e}\n")
+            else:
+                console.print(f"[bold red]An error occurred during agent execution: {e}[/bold red]")
             raise typer.Exit(1)
+        finally:
+            if PID_FILE.exists():
+                PID_FILE.unlink()
 
 
 @app.command()
@@ -118,13 +141,37 @@ def stop():
     try:
         pid = int(PID_FILE.read_text())
         os.kill(pid, 15)  # Send SIGTERM
-        PID_FILE.unlink()
-        console.print("[bold green]IronClaw agent stopped successfully.[/bold green]")
-    except (ValueError, OSError) as e:
-        console.print(f"[bold red]Failed to stop agent: {e}[/bold red]")
+        console.print("[bold green]Waiting for agent to stop...[/bold green]")
+        time.sleep(2) # Give it a moment to shut down
+        if is_running():
+             os.kill(pid, 9) # Force kill if still running
+             console.print("[bold yellow]Agent force-stopped.[/bold yellow]")
+        
         if PID_FILE.exists():
-            PID_FILE.unlink() # Clean up stale PID file
+            PID_FILE.unlink()
+        console.print("[bold green]IronClaw agent stopped successfully.[/bold green]")
+
+    except (ValueError, ProcessLookupError):
+        console.print("[bold yellow]Agent process not found. Cleaning up stale PID file.[/bold yellow]")
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+        raise typer.Exit()
+    except Exception as e:
+        console.print(f"[bold red]Failed to stop agent: {e}[/bold red]")
         raise typer.Exit(1)
+
+
+@app.command()
+def restart():
+    """Restarts the IronClaw agent daemon."""
+    console.print("🔄 [bold blue]Restarting IronClaw agent...[/bold blue]")
+    try:
+        stop()
+    except typer.Exit:
+        # This is expected if the agent wasn't running
+        pass
+    
+    start(daemon=True)
 
 
 @app.command()
@@ -190,6 +237,10 @@ def onboard():
         )
     )
     run_onboarding_session()
+    
+    console.print("\n[bold green]✅ Onboarding complete![/bold green]")
+    if questionary.confirm("Would you like to configure communication channels (like Telegram) now?").ask():
+        configure_channels()
 
 
 @app.command(name="config")
@@ -234,7 +285,7 @@ def config_command(
             update_provider()
 
         elif main_choice == "📡 Channels":
-            console.print("[yellow]Channel configuration is not yet implemented.[/yellow]")
+            configure_channels()
 
         elif main_choice == "🛠️ Tools":
             console.print("[yellow]Tool configuration is not yet implemented.[/yellow]")
@@ -256,7 +307,7 @@ def update():
         raise typer.Exit(1)
 
     if not questionary.confirm(
-        "This will reset your local code to the latest 'iron_claw/main'. "
+        "This will reset your local code to the latest 'origin/main'. "
         "User data (like identities and memory) will be preserved. Are you sure?"
     ).ask():
         console.print("[yellow]Update cancelled.[/yellow]")
@@ -285,7 +336,7 @@ def update():
                 cwd=project_root,
                 capture_output=True,
             )
-            console.print("🔄 Resetting core code to 'iron_claw/main'...")
+            console.print("🔄 Resetting core code to 'origin/main'...")
             subprocess.run(
                 ["git", "reset", "--hard", "origin/main"],
                 check=True,
