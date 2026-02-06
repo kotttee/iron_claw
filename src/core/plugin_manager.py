@@ -62,3 +62,18 @@ def get_all_plugins() -> Dict[str, List[ConfigurablePlugin]]:
         all_plugins[category].sort(key=lambda p: p.name)
 
     return all_plugins
+
+
+def find_plugin(name: str, plugin_type: str) -> ConfigurablePlugin | None:
+
+    all_plugins = get_all_plugins()
+
+    if plugin_type not in all_plugins:
+        return None
+
+
+    for plugin in all_plugins[plugin_type]:
+        if plugin.name == name:
+            return plugin
+
+    return None
