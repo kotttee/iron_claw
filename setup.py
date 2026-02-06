@@ -41,15 +41,13 @@ def load_providers() -> Dict[str, Any]:
 def get_available_models(provider: str, api_key: str, base_url: Optional[str]) -> List[str]:
     """Attempts to fetch the list of available models from the provider's API."""
     try:
-        # litellm.get_model_list uses the same environment variables and logic
-        # as litellm.completion, so it's a reliable way to check.
         models = litellm.get_model_list(api_key=api_key, base_url=base_url)
         return models or []
     except Exception:
         return []
 
 def configure_engine() -> Optional[Dict[str, Any]]:
-    """Phase 1: Interactively configures and tests the LLM backend using providers.json."""
+    """Phase 1: Interactively configures and tests the LLM backend."""
     console.rule("[bold blue]Phase 1: Engine Configuration[/bold blue]")
     providers = load_providers()
     if not providers: return None
@@ -63,35 +61,30 @@ def configure_engine() -> Optional[Dict[str, Any]]:
         choice_desc = "\n".join([f"[{i}] {name}" for i, name in provider_choices.items()])
         
         choice = Prompt.ask("Choose an option", choices=list(provider_choices.keys()), description=choice_desc)
-        
         selected_key = provider_choices[choice]
         
         if selected_key == "Custom/Other":
-            provider_name = Prompt.ask("Enter custom provider name (e.g., 'together_ai')")
+            provider_name = Prompt.ask("Enter custom provider name")
             api_key = Prompt.ask(f"Enter API Key for {provider_name} (if any)", default="")
-            base_url = Prompt.ask("Enter the full API Base URL (e.g., 'https://api.together.xyz/v1')")
-            model = Prompt.ask("Enter the full model name (e.g., 'meta-llama/Llama-3-8b-chat-hf')")
+            base_url = Prompt.ask("Enter the full API Base URL")
+            model = Prompt.ask("Enter the full model name")
             api_key_name = f"{provider_name.upper()}_API_KEY"
         else:
             provider_config = providers[selected_key]
             provider_name = provider_config["provider_name"]
             api_key_name = provider_config["api_key_name"]
             base_url = provider_config["base_url"]
-            
             api_key = Prompt.ask(f"Enter your {api_key_name}", password=True)
             
             with console.status("[yellow]Fetching available models...", spinner="dots"):
                 available_models = get_available_models(provider_name, api_key, base_url)
             
             if available_models:
-                console.print(f"[green]✔ Found {len(available_models)} available models.[/green]")
                 model = Prompt.ask("Select a model", choices=available_models, default=available_models[0])
             else:
-                warn_msg = "Could not automatically fetch models. Please enter the model name manually."
-                console.print(f"[yellow]Warning:[/yellow] {warn_msg}")
-                model = Prompt.ask("Enter model name")
+                model = Prompt.ask("Could not fetch models. Please enter model name manually")
 
-        with console.status("[yellow]Testing connection...", spinner="dots") as status:
+        with console.status("[yellow]Testing connection...", spinner="dots"):
             try:
                 litellm.completion(model=model, messages=[{"role": "user", "content": "Hello"}], api_key=api_key, base_url=base_url, max_tokens=5)
                 console.print("[bold green]✔ Connection successful![/bold green]")
@@ -103,30 +96,26 @@ def configure_engine() -> Optional[Dict[str, Any]]:
                 
                 return {"provider": provider_name, "model": model, "api_key": api_key, "base_url": base_url}
             except Exception as e:
-                status.stop()
                 console.print(Panel(f"[bold red]Connection Failed![/bold red]\nError: {e}", title="Error", border_style="red"))
                 if not Prompt.ask("[yellow]Try again?[/yellow]", choices=["y", "n"], default="y") == "y":
                     return None
 
 def initialize_soul(llm_config: Dict[str, Any]):
     """Phase 2: The AI interviews the user to establish its own identity."""
-    # This function's logic remains the same as the previous step, as it's already dynamic.
-    # It is included here for completeness.
     console.rule("[bold blue]Phase 2: The 'Soul' Initialization[/bold blue]")
     
     setup_system_prompt = (
         "You are the IronClaw Setup Wizard. Your goal is to configure your own personality by interviewing the user. "
-        "Your tone should be conversational and engaging.\n\n"
-        "Ask the user these questions ONE BY ONE, waiting for their answer each time:\n"
-        "1. First, what should be my name? This will be my public identity.\n"
-        "2. Next, what is my core role or personality? (e.g., a cynical but brilliant tech expert, a cheerful and endlessly helpful assistant, a formal and professional operative, etc.)\n"
-        "3. Finally, tell me about yourself, the user. What are your goals or key facts I should know?\n\n"
-        "Once you have clear answers to all three, and ONLY then, you MUST end your response with a JSON block containing the generated identity files. "
-        "The JSON block must be wrapped in ```json ... ``` and contain no other text after it."
+        "Ask these questions ONE BY ONE:\n"
+        "1. What should be my name?\n"
+        "2. What is my core role or personality?\n"
+        "3. Tell me about yourself, the user.\n\n"
+        "Once you have clear answers, you MUST end your response with ONLY a JSON block wrapped in ```json ... ``` containing: "
+        "{ \"ai_md\": \"...\", \"user_md\": \"...\", \"bot_name\": \"...\" }"
     )
     
     messages = [{"role": "system", "content": setup_system_prompt}]
-    initial_message = "Hello! I'm the IronClaw Setup Wizard. Let's get to know each other so I can get set up properly. First, what would you like my name to be?"
+    initial_message = "Hello! I'm the IronClaw Setup Wizard. Let's define my identity. First, what would you like my name to be?"
     console.print(Panel(initial_message, title="[bold magenta]Setup Wizard[/bold magenta]", border_style="magenta"))
     messages.append({"role": "assistant", "content": initial_message})
 
@@ -168,7 +157,8 @@ def initialize_soul(llm_config: Dict[str, Any]):
         else:
             console.print(Panel(ai_response, title="[bold magenta]Setup Wizard[/bold magenta]", border_style="magenta"))
 
-if __name__ == "__main__":
+def run_ai_wizard():
+    """Main entry point function for the setup wizard."""
     try:
         if llm_details := configure_engine():
             initialize_soul(llm_details)
@@ -178,3 +168,6 @@ if __name__ == "__main__":
             console.print("[bold red]Setup aborted.[/bold red]")
     except KeyboardInterrupt:
         console.print("\n[bold red]Setup cancelled by user.[/bold red]")
+
+if __name__ == "__main__":
+    run_ai_wizard()
