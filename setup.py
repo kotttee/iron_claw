@@ -9,7 +9,8 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 
 # Import the new native provider factory
-from src.core.providers import get_provider, PROVIDER_REGISTRY
+from src.core.providers import get_provider
+from src.core.loader import load_custom_providers
 
 # --- Configuration ---
 PROJECT_ROOT = Path(os.environ.get("IRONCLAW_ROOT", Path.home() / ".iron_claw"))
@@ -17,37 +18,51 @@ DATA_DIR = PROJECT_ROOT / "data"
 IDENTITY_DIR = DATA_DIR / "identity"
 CONFIG_PATH = DATA_DIR / "config.json"
 ENV_PATH = PROJECT_ROOT / ".env"
+PROVIDERS_PATH = DATA_DIR / "providers.json"
 AI_IDENTITY_PATH = IDENTITY_DIR / "ai.md"
 USER_IDENTITY_PATH = IDENTITY_DIR / "user.md"
 
-# --- UI & Helpers ---
 console = Console()
 
 def save_file(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
+def load_providers_config() -> Dict[str, Any]:
+    """Loads the full provider configuration from providers.json."""
+    if not PROVIDERS_PATH.exists():
+        console.print(f"[bold red]Error: Provider definition file not found at {PROVIDERS_PATH}[/bold red]")
+        return {}
+    try:
+        return json.loads(PROVIDERS_PATH.read_text())
+    except json.JSONDecodeError:
+        console.print(f"[bold red]Error: Could not parse {PROVIDERS_PATH}.[/bold red]")
+        return {}
+
 def configure_engine() -> Optional[Dict[str, Any]]:
-    """Phase 1: Configures and tests the LLM backend using the native provider system."""
+    """Phase 1: Configures the LLM backend using the data-driven provider system."""
     console.rule("[bold blue]Phase 1: Engine Configuration[/bold blue]")
     
-    provider_names = list(PROVIDER_REGISTRY.keys())
+    providers_config = load_providers_config()
+    if not providers_config: return None
+
+    provider_names = list(providers_config.keys())
     provider_choices = {str(i+1): name for i, name in enumerate(provider_names)}
     
     while True:
         console.print(Panel("Select your LLM Provider.", title="[bold cyan]LLM Setup[/bold cyan]", border_style="cyan"))
-        choice_desc = "\n".join([f"[{i}] {name.capitalize()}" for i, name in provider_choices.items()])
+        choice_desc = "\n".join([f"[{i}] {name}" for i, name in provider_choices.items()])
         prompt_text = f"Choose an option\n\n{choice_desc}"
         choice = Prompt.ask(prompt_text, choices=list(provider_choices.keys()))
         
-        provider_name = provider_choices[choice]
-        api_key_name = f"{provider_name.upper()}_API_KEY"
+        provider_display_name = provider_choices[choice]
+        provider_config = providers_config[provider_display_name]
         
-        console.print(f"[yellow]Warning:[/yellow] Your API key will be visible as you type.")
+        api_key_name = provider_config.get("api_key_name", "API_KEY")
         api_key = Prompt.ask(f"Enter your {api_key_name}")
 
         try:
-            provider_instance = get_provider(provider_name, api_key)
+            provider_instance = get_provider(provider_config, api_key)
         except ValueError as e:
             console.print(f"[bold red]Error: {e}[/bold red]")
             continue
@@ -56,23 +71,23 @@ def configure_engine() -> Optional[Dict[str, Any]]:
             available_models = provider_instance.list_models()
         
         if available_models:
-            console.print(f"[green]✔ Found {len(available_models)} models.[/green]")
             model = Prompt.ask("Select a model", choices=available_models, default=available_models[0])
         else:
-            console.print("[yellow]Warning:[/yellow] Could not fetch models. Please enter model name manually.")
-            model = Prompt.ask("Enter model name")
+            model = Prompt.ask("Could not fetch models. Please enter model name manually.")
 
         with console.status("[yellow]Testing connection...", spinner="dots"):
             try:
-                # Use the provider's chat method for the connection test
                 provider_instance.chat(model, [{"role": "user", "content": "Hello"}], "You are a test bot.")
                 console.print("[bold green]✔ Connection successful![/bold green]")
                 
-                env_content = f"LLM_PROVIDER={provider_name}\n{api_key_name}={api_key}\nLLM_MODEL={model}\n"
+                provider_name_for_env = provider_config.get("provider_type", "custom")
+                env_content = f"LLM_PROVIDER={provider_name_for_env}\n{api_key_name}={api_key}\nLLM_MODEL={model}\n"
+                if base_url := provider_config.get("base_url"):
+                    env_content += f"LLM_BASE_URL={base_url}\n"
                 save_file(ENV_PATH, env_content)
                 console.print(f"[green]✔ Credentials saved to {ENV_PATH}[/green]")
                 
-                return {"provider": provider_instance, "model": model}
+                return {"provider": provider_instance, "model": model, "provider_name": provider_name_for_env}
             except Exception as e:
                 console.print(Panel(f"[bold red]Connection Failed![/bold red]\nError: {e}", title="Error", border_style="red"))
                 if not Prompt.ask("[yellow]Try again?[/yellow]", choices=["y", "n"], default="y") == "y":
@@ -123,7 +138,7 @@ def initialize_soul(engine_config: Dict[str, Any]):
                 
                 main_config = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
                 main_config["agent_name"] = config_data["bot_name"]
-                main_config["llm"] = {"provider": provider.provider_name, "model": model} # Store provider name, not instance
+                main_config["llm"] = {"provider": engine_config["provider_name"], "model": model}
                 save_file(CONFIG_PATH, json.dumps(main_config, indent=4))
                 console.print(f"[green]✔ Main configuration updated at {CONFIG_PATH}[/green]")
                 

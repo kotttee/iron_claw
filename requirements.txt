@@ -6,3 +6,5 @@ python-dotenv
 APScheduler
 sqlalchemy
 requests
+openai
+xai-sdk
