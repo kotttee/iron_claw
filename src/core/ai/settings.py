@@ -12,7 +12,7 @@ from src.core.paths import CONFIG_PATH, PROVIDERS_JSON_PATH
 console = Console()
 
 class SettingsManager:
-    """Manages the CLI-based setup for providers and user preferences."""
+    """Manages the CLI-based setup for providers."""
 
     def __init__(self):
         self.config = self._load_config()
@@ -77,26 +77,10 @@ class SettingsManager:
         console.print(f"[green]✔ Provider '{provider_name}' and model '{model}' configured.[/green]")
         return True
 
-    def configure_preferences(self) -> bool:
-        """Runs the interactive UI to configure user preferences."""
-        console.rule("[bold blue]Preferences Configuration[/bold blue]")
-        timezone = Prompt.ask("Enter your Timezone (e.g., UTC, America/New_York)", default="UTC")
-        verbosity = Prompt.ask("Set default verbosity", choices=["short", "long"], default="long")
-
-        if "preferences" not in self.config:
-            self.config["preferences"] = {}
-        
-        self.config["preferences"]["timezone"] = timezone
-        self.config["preferences"]["verbosity"] = verbosity
-        self._save_config()
-        console.print("[green]✔ Preferences saved.[/green]")
-        return True
-
     def run_full_setup(self):
-        """Runs the complete setup wizard for provider and preferences."""
+        """Runs the complete setup wizard for provider."""
         console.print(Panel("Welcome to the IronClaw Setup Wizard!", title="[bold green]Setup[/bold green]"))
         if self.configure_provider():
-            self.configure_preferences()
             console.rule("[bold green]Setup Complete[/bold green]")
             console.print(f"Configuration saved to {CONFIG_PATH}")
         else:

@@ -8,6 +8,7 @@ from ..context_manager import ContextManager
 from ..plugin_manager import get_all_plugins
 from .identity_manager import IdentityManager
 from .schedule_manager import SchedulerManager
+from src.core.paths import CONFIG_PATH
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,7 +23,7 @@ class Router:
         """Initializes the Router and its components."""
         self.context_manager = ContextManager()
         self.scheduler_manager = SchedulerManager()
-        self.provider = self._initialize_provider()
+        self.provider, self.model_name = self._initialize_provider()
         self.plugin_manager = get_all_plugins(router=self)
         self.system_prompt = self._build_system_prompt()
         self.active_channels = []
@@ -36,21 +37,28 @@ class Router:
             print(f"Router: Registered channel {channel.name}")
 
     def _initialize_provider(self):
-        """Initializes the LLM provider from .env settings."""
-        provider_name = get_key(os.environ.get("ENV_PATH", ".env"), "LLM_PROVIDER_NAME")
-        if not provider_name:
-            raise ValueError("LLM_PROVIDER_NAME not found in .env. Please run setup.py.")
+        """Initializes the LLM provider from config.json."""
+        if not CONFIG_PATH.exists():
+            raise ValueError(f"Configuration file not found at {CONFIG_PATH}. Please run the setup.")
+        
+        try:
+            config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            llm_config = config.get("llm")
+            if not llm_config:
+                raise ValueError("LLM configuration is missing in config.json. Please run the setup.")
 
-        provider_config = provider_factory.get_provider_config(provider_name)
-        if not provider_config:
-            raise ValueError(f"Config for '{provider_name}' not found in providers.json.")
-            
-        api_key_name = provider_config.get("api_key_name")
-        api_key = get_key(os.environ.get("ENV_PATH", ".env"), api_key_name)
-        if not api_key:
-            raise ValueError(f"{api_key_name} not found in .env. Please run setup.py.")
+            provider_name = llm_config.get("provider_name")
+            api_key = llm_config.get("api_key")
+            model_name = llm_config.get("model")
 
-        return provider_factory.create_provider(provider_name, api_key)
+            if not all([provider_name, api_key, model_name]):
+                raise ValueError("Provider name, API key, or model is missing from LLM configuration. Please run the setup.")
+
+            provider = provider_factory.create_provider(provider_name, api_key)
+            return provider, model_name
+
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            raise ValueError(f"Failed to load or parse configuration: {e}. Please run the setup.")
 
     def _build_system_prompt(self) -> str:
         """
@@ -111,10 +119,6 @@ class Router:
         
         system_prompt = self.system_prompt + "\n\nYou are executing a scheduled task. Follow the instructions and use tools if necessary."
         
-        model_name = get_key(os.environ.get("ENV_PATH", ".env"), "LLM_MODEL")
-        if not model_name:
-            raise ValueError("LLM_MODEL not found in .env.")
-
         messages = [{"role": "user", "content": f"Scheduled Task: {event_instruction}"}]
         
         # Tool execution loop for scheduled events
@@ -123,7 +127,7 @@ class Router:
         
         for i in range(max_iterations):
             response_text = self.provider.chat(
-                model=model_name,
+                model=self.model_name,
                 messages=messages,
                 system_prompt=system_prompt
             )
@@ -187,16 +191,12 @@ class Router:
 
         self.context_manager.add_message("user", user_message)
         
-        model_name = get_key(os.environ.get("ENV_PATH", ".env"), "LLM_MODEL")
-        if not model_name:
-            raise ValueError("LLM_MODEL not found in .env. Please run setup.py.")
-
         # Tool execution loop
         max_iterations = 5
         for i in range(max_iterations):
             full_history = self.context_manager.history
             assistant_response = self.provider.chat(
-                model=model_name,
+                model=self.model_name,
                 messages=full_history,
                 system_prompt=self.system_prompt
             )
