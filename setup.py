@@ -40,7 +40,7 @@ def load_providers_config() -> Dict[str, Any]:
         return {}
 
 def configure_engine() -> Optional[Dict[str, Any]]:
-    """Phase 1: Configures the LLM backend using the data-driven provider system."""
+    """Phase 1: Configures the LLM backend with improved validation."""
     console.rule("[bold blue]Phase 1: Engine Configuration[/bold blue]")
     
     providers_config = load_providers_config()
@@ -58,9 +58,14 @@ def configure_engine() -> Optional[Dict[str, Any]]:
         provider_display_name = provider_choices[choice]
         provider_config = providers_config[provider_display_name]
         
-        # FIX: Use .get() for safety and use the correct key 'provider_type'.
-        provider_type = provider_config.get("provider_type", "unknown")
-        api_key_name = provider_config.get("api_key_name", "API_KEY")
+        # FIX: Add validation for required keys from providers.json
+        required_keys = ["provider_type", "api_key_name", "base_url"]
+        if not all(key in provider_config for key in required_keys):
+            console.print(f"[bold red]Error:[/bold red] The configuration for '{provider_display_name}' in `providers.json` is incomplete. It must contain 'provider_type', 'api_key_name', and 'base_url'.")
+            continue
+
+        provider_type = provider_config["provider_type"]
+        api_key_name = provider_config["api_key_name"]
         
         api_key = Prompt.ask(f"Enter your {api_key_name}")
 
@@ -89,7 +94,7 @@ def configure_engine() -> Optional[Dict[str, Any]]:
                 save_file(ENV_PATH, env_content)
                 console.print(f"[green]✔ Credentials saved to {ENV_PATH}[/green]")
                 
-                return {"provider": provider_instance, "model": model, "provider_name": provider_type}
+                return {"provider": provider_instance, "model": model, "provider_display_name": provider_display_name, "provider_type": provider_type}
             except Exception as e:
                 console.print(Panel(f"[bold red]Connection Failed![/bold red]\nError: {e}", title="Error", border_style="red"))
                 if not Prompt.ask("[yellow]Try again?[/yellow]", choices=["y", "n"], default="y") == "y":
@@ -99,7 +104,7 @@ def initialize_soul(engine_config: Dict[str, Any]):
     """Phase 2: The AI interviews the user to establish its own identity."""
     console.rule("[bold blue]Phase 2: The 'Soul' Initialization[/bold blue]")
     
-    provider: BaseProvider = engine_config["provider"]
+    provider = engine_config["provider"]
     model: str = engine_config["model"]
     
     system_prompt = (
@@ -140,7 +145,13 @@ def initialize_soul(engine_config: Dict[str, Any]):
                 
                 main_config = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
                 main_config["agent_name"] = config_data["bot_name"]
-                main_config["llm"] = {"provider": engine_config["provider_name"], "model": model}
+                
+                # FIX: Store a more descriptive block in config.json
+                main_config["llm"] = {
+                    "provider_name": engine_config["provider_display_name"],
+                    "provider_type": engine_config["provider_type"],
+                    "model": model
+                }
                 save_file(CONFIG_PATH, json.dumps(main_config, indent=4))
                 console.print(f"[green]✔ Main configuration updated at {CONFIG_PATH}[/green]")
                 
