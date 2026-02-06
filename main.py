@@ -43,19 +43,22 @@ def get_kernel() -> Kernel:
     return _kernel_instance
 
 class ConsoleChannel(BaseChannel):
-    """A simple channel for console interaction used by the `talk` command."""
+    """A simple channel for console interaction."""
     def __init__(self):
         super().__init__(name="console", category="channel")
 
     async def start(self, *args, **kwargs):
-        pass # Not needed for talk command
+        pass
 
     def send_message(self, text: str, target: str | None = None):
-        # This is now the primary way `talk` receives output
         console.print(Markdown(text))
 
     async def healthcheck(self):
         return True, "OK"
+
+    def setup_wizard(self) -> None:
+        """Console channel requires no setup."""
+        pass
 
 
 def is_running():

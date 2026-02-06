@@ -221,6 +221,7 @@ class Router:
         max_iterations = 5
         for i in range(max_iterations):
             full_history = self.context_manager.history
+            console.print(f"full history len: {full_history}")
             assistant_response = self.provider.chat(
                 model=self.model_name,
                 messages=full_history,
