@@ -1,14 +1,9 @@
 import json
-import os
 from abc import ABC, abstractmethod
-from pathlib import Path
 from dotenv import set_key, get_key
 
-# Define a root path for data storage, assuming it's in the project root/data
-# A more robust solution might involve environment variables or a config file.
-DATA_ROOT = Path(__file__).parent.parent.parent / "data"
-CONFIGS_DIR = DATA_ROOT / "configs"
-ENV_PATH = Path(__file__).parent.parent.parent / ".env"
+# Refactored to use the centralized pathing system
+from .paths import CONFIGS_DIR, ENV_PATH, ensure_dirs
 
 class ConfigurablePlugin(ABC):
     """
@@ -37,7 +32,7 @@ class ConfigurablePlugin(ABC):
         Loads the plugin's configuration from its JSON file.
         If the file doesn't exist, initializes with an empty dictionary.
         """
-        CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+        ensure_dirs()  # Ensure ~/.iron_claw/data/configs exists
         if self.config_path.exists():
             try:
                 self.config = json.loads(self.config_path.read_text(encoding="utf-8"))
@@ -50,12 +45,11 @@ class ConfigurablePlugin(ABC):
             else:
                  self.config = {"enabled": False}
 
-
     def save_config(self):
         """
         Saves the current configuration dictionary to its JSON file.
         """
-        CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+        ensure_dirs()
         self.config_path.write_text(json.dumps(self.config, indent=4), encoding="utf-8")
 
     def is_enabled(self) -> bool:
@@ -83,7 +77,7 @@ class ConfigurablePlugin(ABC):
             key (str): The environment variable name (e.g., 'TELEGRAM_TOKEN').
             value (str): The secret value to save.
         """
-        # Ensure the .env file exists before trying to set a key
+        ensure_dirs()
         if not ENV_PATH.exists():
             ENV_PATH.touch()
         

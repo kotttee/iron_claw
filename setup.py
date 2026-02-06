@@ -1,22 +1,15 @@
 import questionary
 from rich.console import Console
 from rich.panel import Panel
-from dotenv import set_key, get_key, find_dotenv
+from dotenv import set_key, get_key
 
+# Refactored to use the centralized pathing system
+from src.core.paths import ENV_PATH, IDENTITY_DIR, ensure_dirs
 from src.core.plugin_manager import get_all_plugins
-from src.core.interfaces import ConfigurablePlugin, DATA_ROOT
-from src.core.providers import provider_factory # Updated import
+from src.core.providers import provider_factory
 
 # --- Constants ---
 console = Console()
-# Ensure .env file exists for dotenv functions to work reliably
-env_path_str = find_dotenv()
-if not env_path_str:
-    env_path_str = str(DATA_ROOT.parent / ".env")
-    with open(env_path_str, "a"):
-        pass # Create the file if it doesn't exist
-ENV_PATH = env_path_str
-
 
 # --- TUI Handlers ---
 
@@ -70,7 +63,6 @@ def handle_plugin_menu(category: str):
                 new_state = selected_plugin.toggle_enabled()
                 console.print(f"[green]✔ {selected_plugin.name.capitalize()} is now {'enabled' if new_state else 'disabled'}.[/green]")
             elif action == "configure":
-                # The plugin's own wizard takes over the screen
                 selected_plugin.setup_wizard()
                 console.print(f"[green]✔ Re-ran configuration for {selected_plugin.name.capitalize()}.[/green]")
 
@@ -79,32 +71,34 @@ def handle_ai_core_config():
     """Interactive setup for the core LLM provider using the ProviderFactory."""
     console.print(Panel("🧠 Configure AI Core", style="bold blue", expand=False))
     
+    ensure_dirs()
+    if not ENV_PATH.exists():
+        ENV_PATH.touch()
+
     provider_names = provider_factory.get_provider_names()
     if not provider_names:
         console.print("[bold red]Error: Could not load any providers from providers.json.[/bold red]")
         return
 
-    # Get the display name from providers.json
     provider_display_name = questionary.select(
         "Select LLM Provider:",
         choices=provider_names,
-        default=get_key(ENV_PATH, "LLM_PROVIDER_NAME") or provider_names[0]
+        default=get_key(str(ENV_PATH), "LLM_PROVIDER_NAME") or provider_names[0]
     ).ask()
 
     if not provider_display_name:
-        return # User cancelled
+        return
 
-    # Get the specific config and the required API key name
     provider_config = provider_factory.get_provider_config(provider_display_name)
     if not provider_config:
         console.print(f"[bold red]Could not find config for {provider_display_name}[/bold red]")
         return
         
-    api_key_name = provider_config.get("api_key_name", "API_KEY") # Default to a generic name
+    api_key_name = provider_config.get("api_key_name", "API_KEY")
 
     api_key = questionary.text(
         f"Enter your {api_key_name}:",
-        default=get_key(ENV_PATH, api_key_name) or ""
+        default=get_key(str(ENV_PATH), api_key_name) or ""
     ).ask()
 
     if not api_key:
@@ -112,7 +106,6 @@ def handle_ai_core_config():
         return
 
     try:
-        # Use the factory to create the provider instance
         provider = provider_factory.create_provider(provider_display_name, api_key)
         
         with console.status("[yellow]Testing connection and fetching models...[/yellow]"):
@@ -126,12 +119,11 @@ def handle_ai_core_config():
             model_name = questionary.select("Select a model:", choices=models).ask()
 
         if not model_name:
-            return # User cancelled
+            return
 
-        # Save all relevant info to the .env file
-        set_key(ENV_PATH, "LLM_PROVIDER_NAME", provider_display_name)
-        set_key(ENV_PATH, api_key_name, api_key)
-        set_key(ENV_PATH, "LLM_MODEL", model_name)
+        set_key(str(ENV_PATH), "LLM_PROVIDER_NAME", provider_display_name)
+        set_key(str(ENV_PATH), api_key_name, api_key)
+        set_key(str(ENV_PATH), "LLM_MODEL", model_name)
         
         console.print("[bold green]✔ AI Core configured successfully![/bold green]")
 
@@ -143,11 +135,10 @@ def handle_identity_config():
     """Interactive setup for the agent's identity."""
     console.print(Panel("👤 Configure Identity", style="bold magenta", expand=False))
     
-    ai_md_path = DATA_ROOT / "identity" / "ai.md"
-    user_md_path = DATA_ROOT / "identity" / "user.md"
+    ensure_dirs()
+    ai_md_path = IDENTITY_DIR / "ai.md"
+    user_md_path = IDENTITY_DIR / "user.md"
     
-    ai_md_path.parent.mkdir(exist_ok=True, parents=True)
-
     ai_name = questionary.text("What is my name?", default="IronClaw").ask()
     ai_role = questionary.text("Describe my core personality/role:", default="A helpful AI assistant.").ask()
     user_info = questionary.text("Describe the user (you):", default="A developer building AI applications.").ask()
@@ -159,7 +150,7 @@ def handle_identity_config():
     console.print("[bold green]✔ Identity configured successfully![/bold green]")
 
 
-def main_menu():
+def run_setup_wizard():
     """The main TUI loop for the setup wizard."""
     console.print(Panel("Welcome to the [bold]IronClaw[/bold] Setup Wizard", style="bold green"))
     
@@ -193,6 +184,6 @@ def main_menu():
 
 if __name__ == "__main__":
     try:
-        main_menu()
+        run_setup_wizard()
     except (KeyboardInterrupt, TypeError):
         console.print("\n[bold red]Setup aborted.[/bold red]")

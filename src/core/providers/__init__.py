@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Type
 
+# Refactored to use the centralized pathing system
+from ..paths import PROVIDERS_JSON_PATH
 from .base import BaseProvider
 from .openai import OpenAIProvider
 from .xai import XAIProvider
@@ -25,9 +27,8 @@ class ProviderFactory:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ProviderFactory, cls).__new__(cls)
-            # The user is currently editing providers.json
-            config_path = Path("/Users/macbookpro/PycharmProjects/PycharmProjects/iron_claw/providers.json")
-            cls._instance._load_config(config_path)
+            # Refactored to use the centralized path from paths.py
+            cls._instance._load_config(PROVIDERS_JSON_PATH)
         return cls._instance
 
     def _load_config(self, config_path: Path):
@@ -80,13 +81,4 @@ class ProviderFactory:
         return provider_class(api_key=api_key, base_url=base_url)
 
 # A singleton instance for easy access throughout the application.
-#
-# Usage:
-# from src.core.providers import provider_factory
-#
-# provider_names = provider_factory.get_provider_names()
-# chosen_name = # ... get user choice, e.g., "OpenAI"
-# api_key = # ... get user input
-#
-# llm_provider = provider_factory.create_provider(chosen_name, api_key)
 provider_factory = ProviderFactory()

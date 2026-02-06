@@ -13,7 +13,12 @@ from rich.panel import Panel
 # Core components
 from src.core.router import Router
 from src.core.context_manager import ContextManager
-from src.core.plugin_manager import get_all_plugins
+
+# Import the setup wizard dynamically
+try:
+    from setup import run_setup_wizard
+except ImportError:
+    run_setup_wizard = None
 
 # --- App Setup ---
 app = typer.Typer(name="ironclaw", help="A modular, open-source AI Agent Platform.", add_completion=False)
@@ -197,6 +202,101 @@ def update_command():
             console.print(f"[bold red]Dependency installation failed: {e}[/bold red]")
 
     console.rule("[bold green]✅ Update Complete[/bold green]")
+
+@app.command(name="setup")
+def setup_command():
+    """
+    Shows an interactive prompt to run the setup wizard or reset user data.
+    """
+    project_root = get_project_root()
+    console.rule("[bold magenta]IronClaw Setup & Reset[/bold magenta]")
+
+    choices = [
+        questionary.Choice("🚀 Run Configuration Wizard", value="wizard"),
+        questionary.Separator(),
+        questionary.Choice("🔥 Delete ALL user data (data/, .env, src/custom/)", value="all"),
+        questionary.Choice("🗑️ Delete conversation history (data/memory.json)", value="history"),
+        questionary.Choice("🗑️ Delete plugin configurations (data/configs/)", value="configs"),
+        questionary.Choice("🗑️ Delete identity profiles (data/identity/)", value="identity"),
+        questionary.Separator(),
+        questionary.Choice("❌ Cancel", value="cancel")
+    ]
+
+    if not run_setup_wizard:
+        choices[0] = questionary.Choice("[Unavailable] Run Configuration Wizard", disabled="setup.py not found")
+
+    choice = questionary.select(
+        "Select an option:",
+        choices=choices
+    ).ask()
+
+    if not choice or choice == "cancel":
+        console.print("[yellow]Operation cancelled.[/yellow]")
+        raise typer.Exit()
+
+    if choice == "wizard":
+        if run_setup_wizard:
+            run_setup_wizard()
+        else:
+            console.print("[bold red]Error: Could not import `run_setup_wizard` from setup.py.[/bold red]")
+        raise typer.Exit()
+
+    # Confirmation prompt for destructive operations
+    console.print(Panel("⚠️ [bold yellow]Warning:[/bold yellow] The actions below are destructive and cannot be undone.", expand=False))
+    if not questionary.confirm(f"Are you absolutely sure you want to proceed with '{choice}'?").ask():
+        console.print("[yellow]Operation cancelled.[/yellow]")
+        raise typer.Exit()
+
+    # Define paths based on project root
+    data_dir = project_root / "data"
+    env_file = project_root / ".env"
+    custom_dir = project_root / "src" / "custom"
+    memory_file = data_dir / "memory.json"
+    configs_dir = data_dir / "configs"
+    identity_dir = data_dir / "identity"
+
+    deleted_items = []
+    
+    def safe_rmtree(path: Path):
+        if path.is_dir():
+            shutil.rmtree(path)
+            deleted_items.append(f"Directory: {path.relative_to(project_root)}")
+
+    def safe_unlink(path: Path):
+        if path.is_file():
+            path.unlink()
+            deleted_items.append(f"File: {path.relative_to(project_root)}")
+
+    if choice == "all":
+        console.print("[bold red]Deleting all user data...[/bold red]")
+        safe_rmtree(data_dir)
+        safe_unlink(env_file)
+        safe_rmtree(custom_dir)
+        # Recreate empty dirs
+        data_dir.mkdir(exist_ok=True)
+        custom_dir.mkdir(exist_ok=True)
+        (custom_dir / '.gitkeep').touch()
+
+    elif choice == "history":
+        console.print("Deleting conversation history...")
+        safe_unlink(memory_file)
+
+    elif choice == "configs":
+        console.print("Deleting plugin configurations...")
+        safe_rmtree(configs_dir)
+
+    elif choice == "identity":
+        console.print("Deleting identity profiles...")
+        safe_rmtree(identity_dir)
+
+    if deleted_items:
+        console.print("\n[bold green]Successfully deleted:[/bold green]")
+        for item in deleted_items:
+            console.print(f"- {item}")
+    else:
+        console.print("\n[yellow]No items were found to delete.[/yellow]")
+
+    console.rule("[bold green]✅ Reset Complete[/bold green]")
 
 if __name__ == "__main__":
     app()
