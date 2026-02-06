@@ -18,7 +18,7 @@ from src.core.ai.onboarding import run_onboarding_session
 from src.core.ai.settings import SettingsManager
 from src.core.kernel import Kernel
 from src.core.paths import DATA_ROOT, BASE_DIR, ENV_PATH
-from src.plugins.channels.telegram_bot import TelegramBotChannel
+from src.core.plugin_manager import get_all_plugins
 
 # --- App Setup ---
 app = typer.Typer(
@@ -52,20 +52,41 @@ def update_provider():
 
 
 def configure_channels():
-    """Interactive menu to configure communication channels."""
+    """Dynamically discovers and configures communication channels."""
     console.print(Panel("Channel Configuration", title="[bold cyan]📡 Channels[/bold cyan]"))
+    
+    # Discover available channel plugins
+    all_plugins = get_all_plugins()
+    channel_classes = all_plugins.get("channels", [])
+    
+    # Filter for channels that have a setup_wizard
+    configurable_channels = []
+    for chan_class in channel_classes:
+        # Instantiate to check for the method
+        instance = chan_class()
+        if hasattr(instance, 'setup_wizard') and callable(instance.setup_wizard):
+            configurable_channels.append(instance)
+
+    if not configurable_channels:
+        console.print("[yellow]No configurable channels found.[/yellow]")
+        return
+
+    choices = [channel.name for channel in configurable_channels]
+    choices.extend([questionary.Separator(), "Back"])
+
     choice = questionary.select(
         "Select a channel to configure:",
-        choices=["Telegram Bot", questionary.Separator(), "Back"]
+        choices=choices
     ).ask()
 
-    if choice == "Telegram Bot":
-        try:
-            channel = TelegramBotChannel()
-            channel.setup_wizard()
-            console.print("[bold yellow]A restart is required for channel changes to take effect. Use `ironclaw restart`.[/bold yellow]")
-        except Exception as e:
-            console.print(f"[bold red]An error occurred during Telegram setup: {e}[/bold red]")
+    if choice and choice != "Back":
+        selected_channel = next((c for c in configurable_channels if c.name == choice), None)
+        if selected_channel:
+            try:
+                selected_channel.setup_wizard()
+                console.print("[bold yellow]A restart is required for channel changes to take effect. Use `ironclaw restart`.[/bold yellow]")
+            except Exception as e:
+                console.print(f"[bold red]An error occurred during {choice} setup: {e}[/bold red]")
 
 
 # --- CLI Commands ---
@@ -83,12 +104,10 @@ def start(
 
     if daemon:
         console.print(Panel("🚀 [bold green]Starting IronClaw Agent in background[/bold green]"))
-        # Use subprocess to detach the process cleanly
         try:
             p = subprocess.Popen(
-                [sys.executable, __file__, "start"],  # Re-run this script without the --daemon flag
+                [sys.executable, __file__, "start"],
                 close_fds=True,
-                # The following are for POSIX systems to truly detach
                 start_new_session=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -102,14 +121,10 @@ def start(
             console.print(f"[bold red]Failed to start daemon: {e}[/bold red]")
             raise typer.Exit(1)
     else:
-        # This part runs in the foreground or as the actual daemon process
-        # Write PID file for the actual running process
         with open(PID_FILE, "w") as f:
             f.write(str(os.getpid()))
         
-        if not os.isatty(sys.stdout.fileno()): # Don't print panel if in background
-            pass
-        else:
+        if os.isatty(sys.stdout.fileno()):
             console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
         
         try:
@@ -119,11 +134,11 @@ def start(
             if os.isatty(sys.stdout.fileno()):
                 console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
         except Exception as e:
-            # Log error to a file if running in background
-            if not os.isatty(sys.stdout.fileno()):
-                with open(DATA_ROOT / "error.log", "a") as f:
-                    f.write(f"{time.ctime()}: {e}\n")
-            else:
+            log_path = DATA_ROOT / "error.log"
+            log_path.parent.mkdir(exist_ok=True)
+            with open(log_path, "a") as f:
+                f.write(f"{time.ctime()}: {e}\n")
+            if os.isatty(sys.stdout.fileno()):
                 console.print(f"[bold red]An error occurred during agent execution: {e}[/bold red]")
             raise typer.Exit(1)
         finally:
@@ -140,11 +155,11 @@ def stop():
 
     try:
         pid = int(PID_FILE.read_text())
-        os.kill(pid, 15)  # Send SIGTERM
+        os.kill(pid, 15)
         console.print("[bold green]Waiting for agent to stop...[/bold green]")
-        time.sleep(2) # Give it a moment to shut down
+        time.sleep(2)
         if is_running():
-             os.kill(pid, 9) # Force kill if still running
+             os.kill(pid, 9)
              console.print("[bold yellow]Agent force-stopped.[/bold yellow]")
         
         if PID_FILE.exists():
@@ -168,7 +183,6 @@ def restart():
     try:
         stop()
     except typer.Exit:
-        # This is expected if the agent wasn't running
         pass
     
     start(daemon=True)
