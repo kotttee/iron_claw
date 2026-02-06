@@ -1,14 +1,12 @@
 import asyncio
 import logging
 from functools import partial
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, Tuple, TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ChatAction
 from aiogram.filters import CommandStart
-from aiogram.types import FSInputFile
-from rich.console import Console
-from rich.prompt import Prompt
+from aiogram.exceptions import TelegramUnauthorizedError
 
 from src.interfaces.channel import BaseChannel
 from src.core.interfaces import ConfigurablePlugin
@@ -31,53 +29,69 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
         super().__init__(name="telegram_bot", category="channel")
         self.bot: Bot | None = None
         self.admin_id: int | None = None
-        self.console = Console()
 
-    @property
-    def plugin_id(self) -> str:
-        """The namespaced, unique identifier for this plugin."""
-        return "telegram_bot"
+    async def healthcheck(self) -> Tuple[bool, str]:
+        """Checks if the bot token and admin ID are valid."""
+        token = self._get_secret("TELEGRAM_BOT_TOKEN")
+        admin_id_str = self._get_secret("TELEGRAM_ADMIN_ID")
+
+        if not token:
+            return False, "Telegram Bot Token is not set."
+        if not admin_id_str:
+            return False, "Telegram Admin ID is not set."
+
+        try:
+            temp_bot = Bot(token=token)
+            bot_user = await temp_bot.get_me()
+            await temp_bot.session.close() # Clean up the session
+            return True, f"OK (Bot: @{bot_user.username})"
+        except TelegramUnauthorizedError:
+            return False, "Telegram Bot Token is invalid or expired."
+        except Exception as e:
+            return False, f"An unexpected error occurred during Telegram health check: {e}"
 
     def setup_wizard(self) -> None:
         """Interactively prompts for Telegram configuration for a single admin user."""
-        self.console.print("[bold blue]Configuring Telegram Bot Channel...[/bold blue]")
-        self.console.print("You can get a token by talking to [bold magenta]@BotFather[/bold magenta] on Telegram.")
-        token = Prompt.ask("Enter Telegram Bot Token")
+        from rich.console import Console
+        from rich.prompt import Prompt
+        console = Console()
+
+        console.print("[bold blue]Configuring Telegram Bot Channel...[/bold blue]")
+        console.print("You can get a token by talking to [bold magenta]@BotFather[/bold magenta] on Telegram.")
+        token = Prompt.ask("Enter Telegram Bot Token", default=self._get_secret("TELEGRAM_BOT_TOKEN"))
+        
         if token:
             self._save_secret("TELEGRAM_BOT_TOKEN", token)
 
-        self.console.print("\nEnter the Telegram User ID of the admin who will use this bot.")
-        self.console.print("You can find your ID by messaging [bold magenta]@userinfobot[/bold magenta].")
-        admin_id_str = Prompt.ask("Admin User ID")
+        console.print("\nEnter the Telegram User ID of the admin who will use this bot.")
+        console.print("You can find your ID by messaging [bold magenta]@userinfobot[/bold magenta].")
+        admin_id_str = Prompt.ask("Admin User ID", default=self._get_secret("TELEGRAM_ADMIN_ID"))
 
-        try:
-            admin_id = int(admin_id_str.strip())
-            self._save_secret("TELEGRAM_ADMIN_ID", str(admin_id))
-        except ValueError:
-            self.console.print("[bold red]Error: Invalid User ID. Please enter a number only.[/bold red]")
-            return
-
-        self.config["enabled"] = True
-        self.save_config()
-        self.console.print("✅ Telegram configured successfully for single admin user.")
+        if admin_id_str:
+            try:
+                admin_id = int(admin_id_str.strip())
+                self._save_secret("TELEGRAM_ADMIN_ID", str(admin_id))
+                self.config["enabled"] = True
+                self.save_config()
+                console.print("✅ Telegram configured successfully.")
+            except ValueError:
+                console.print("[bold red]Error: Invalid User ID. Please enter a number only.[/bold red]")
+                self.config["enabled"] = False
+                self.save_config()
+        else:
+            self.config["enabled"] = False
+            self.save_config()
 
     async def start(self, config: Dict[str, Any], router: "Router"):
         """Initializes and starts the Telegram bot's polling loop."""
         token = self._get_secret("TELEGRAM_BOT_TOKEN")
         admin_id_str = self._get_secret("TELEGRAM_ADMIN_ID")
-
-        if not token:
-            logger.error("Telegram Bot Token not found. Please run the setup wizard.")
-            return
-        if not admin_id_str:
-            logger.error("Telegram Admin ID not found. Please run the setup wizard.")
-            return
-
+        
+        # Healthcheck should prevent start() from being called if these are missing
         self.admin_id = int(admin_id_str)
         self.bot = Bot(token=token)
         dp = Dispatcher()
 
-        # Use functools.partial to correctly pass the router argument
         dp.message(CommandStart())(self._handle_start)
         dp.message(F.text)(partial(self._handle_text, router=router))
         dp.message(F.photo)(partial(self._handle_photo, router=router))
@@ -116,7 +130,6 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
 
         typing_task = asyncio.create_task(self._typing_loop(message.chat.id))
         try:
-            # This call is now synchronous in the router
             router.process_message(text_to_process, "telegram")
         finally:
             typing_task.cancel()
@@ -153,8 +166,14 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
         """Asynchronously sends a text message, handling splitting."""
         if not self.bot: return
 
+        try:
+            chat_id = int(user_id)
+        except ValueError:
+            logger.error(f"Invalid target user_id for Telegram: {user_id}")
+            return
+
         if len(text) <= TELEGRAM_MAX_MESSAGE_LENGTH:
-            await self.bot.send_message(chat_id=user_id, text=text)
+            await self.bot.send_message(chat_id=chat_id, text=text)
             return
 
         parts = []
@@ -171,8 +190,5 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             text = text[split_pos:].lstrip()
 
         for part in parts:
-            await self.bot.send_message(chat_id=user_id, text=part)
+            await self.bot.send_message(chat_id=chat_id, text=part)
             await asyncio.sleep(0.5)
-
-    def setup(self, wizard_context: Dict[str, Any]) -> Dict[str, Any]:
-        return self.config

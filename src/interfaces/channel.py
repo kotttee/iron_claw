@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 class BaseChannel(ABC):
     """
@@ -11,7 +11,7 @@ class BaseChannel(ABC):
 
     @property
     @abstractmethod
-    def plugin_id(self) -> str:
+    def name(self) -> str:
         """
         A unique identifier for the plugin (e.g., 'console', 'telegram').
         This should be a lowercase string with no spaces.
@@ -19,46 +19,36 @@ class BaseChannel(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def setup(self, wizard_context: Dict[str, Any]) -> Dict[str, Any]:
+    def setup_wizard(self) -> None:
         """
         Interactively prompts the user for configuration settings required by the channel.
-
-        This method is called by the setup wizard (`setup.py`) when the user chooses
-        to enable this channel. It should use tools like `rich.prompt` to get
-        necessary information, such as API tokens or personality settings.
-
-        Args:
-            wizard_context: A dictionary containing the global context of the setup wizard,
-                            which can be used to access shared settings or state.
-
-        Returns:
-            A dictionary containing the configuration specific to this channel,
-            which will be saved into the `data/config.json` file.
+        This method is called from the main CLI `config` command.
         """
         raise NotImplementedError
 
     @abstractmethod
-    async def start(self, config: Dict[str, Any], router: 'MessageRouter'):
+    async def start(self, config: Dict[str, Any], router: 'Router'):
         """
         Starts the channel's main loop to listen for incoming messages.
-
-        This method is called by the main application entry point (`main.py`)
-        when the application starts.
-
-        Args:
-            config: The configuration dictionary for this specific channel,
-                    loaded from `data/config.json`.
-            router: The central message router to which incoming messages will be passed.
+        This method is called by the Kernel when the application starts.
         """
         raise NotImplementedError
         
     @abstractmethod
-    async def send_reply(self, user_id: str, text: str):
+    def send_reply(self, text: str, target: str):
         """
         Sends a reply back to the user on this channel.
+        This method is called by the Router.
+        """
+        raise NotImplementedError
 
-        Args:
-            user_id: The identifier for the user or chat to send the reply to.
-            text: The message to send.
+    @abstractmethod
+    async def healthcheck(self) -> Tuple[bool, str]:
+        """
+        Performs a health check to ensure the channel is configured correctly and can connect.
+        
+        Returns:
+            A tuple containing a boolean indicating health and a status message.
+            (True, "OK") or (False, "Error message").
         """
         raise NotImplementedError
