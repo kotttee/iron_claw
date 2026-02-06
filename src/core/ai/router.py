@@ -2,10 +2,10 @@ from dotenv import load_dotenv, get_key
 import os
 import inspect
 
-from .providers import provider_factory
-from .context_manager import ContextManager
-from .plugin_manager import get_all_plugins
-from .identity import get_system_prompt
+from ..providers import provider_factory
+from ..context_manager import ContextManager
+from ..plugin_manager import get_all_plugins, find_plugin
+from .identity_manager import IdentityManager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -13,13 +13,15 @@ load_dotenv()
 class Router:
     """
     The Router is the central processing unit. It builds the system prompt,
-    manages context, injects tool definitions, and routes messages to the LLM.
+    manages context, injects tool definitions, and routes messages to the LLM
+    and appropriate output channels.
     """
     def __init__(self):
         """Initializes the Router and its components."""
         self.context_manager = ContextManager()
         self.provider = self._initialize_provider()
         self.system_prompt = self._build_system_prompt()
+        self.plugin_manager = get_all_plugins()
 
     def _initialize_provider(self):
         """Initializes the LLM provider from .env settings."""
@@ -40,31 +42,22 @@ class Router:
 
     def _build_system_prompt(self) -> str:
         """
-        Constructs the full system prompt, including identity, user info, and available tools.
+        Constructs the full system prompt, including identity and available tools.
         """
-        base_prompt = get_system_prompt()
+        base_prompt = IdentityManager.get_identity_prompt()
         
-        # --- Tool Injection ---
         tool_definitions = []
-        all_plugins = get_all_plugins()
-        enabled_tools = [p for p in all_plugins.get("tools", []) if p.is_enabled()]
+        enabled_tools = [p for p in self.plugin_manager.get("tools", []) if p.is_enabled()]
 
         if enabled_tools:
             for tool_plugin in enabled_tools:
-                # Dynamically get the 'run' function from the loaded module instance
-                # This assumes the plugin instance has its module loaded.
-                # A more robust way might be to store module path in the plugin.
                 try:
-                    # This is a bit of a hack; assumes the plugin class is defined in a module
-                    # that has a 'run' function. A better design would be for the plugin
-                    # to expose its primary function directly.
                     module = inspect.getmodule(tool_plugin)
                     if hasattr(module, 'run') and callable(module.run):
                         docstring = inspect.getdoc(module.run)
                         if docstring:
                             tool_definitions.append(f"- {tool_plugin.name}: {docstring.strip()}")
                 except Exception:
-                    # Could fail if module is not found, etc.
                     pass
 
         if tool_definitions:
@@ -75,6 +68,69 @@ class Router:
         
         return base_prompt
 
+    def get_preferred_output_channel(self) -> dict:
+        """
+        Determines the preferred output channel based on enabled plugins.
+        Serves a single admin user.
+        """
+        telegram_plugin = find_plugin("telegram", plugin_type="channels")
+        if telegram_plugin and telegram_plugin.is_enabled():
+            admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
+            if admin_id:
+                return {'type': 'telegram', 'target': admin_id}
+        
+        return {'type': 'console', 'target': None}
+
+    def handle_scheduled_event(self, event_instruction: str):
+        """
+        Handles a scheduled event by generating content and sending it to the
+        preferred channel.
+        """
+        print(f"Handling scheduled event: {event_instruction}")
+        
+        system_prompt = "You are executing a scheduled task. Generate a response based on the following instruction."
+        
+        model_name = get_key(os.environ.get("ENV_PATH", ".env"), "LLM_MODEL")
+        if not model_name:
+            raise ValueError("LLM_MODEL not found in .env.")
+
+        # Generate content using the LLM
+        response_text = self.provider.chat(
+            model=model_name,
+            messages=[{"role": "user", "content": event_instruction}],
+            system_prompt=system_prompt
+        )
+
+        # Save the interaction to history
+        self.context_manager.add_message("user", f"Scheduled Task: {event_instruction}")
+        self.context_manager.add_message("assistant", response_text)
+
+        # Send the response to the appropriate channel
+        self._send_to_channel(response_text)
+
+    def _send_to_channel(self, text: str):
+        """
+        Sends a message to the preferred output channel.
+        """
+        channel_info = self.get_preferred_output_channel()
+        channel_type = channel_info['type']
+        target = channel_info['target']
+
+        if channel_type == 'console':
+            print(f"Output (Console): {text}")
+            return
+
+        # Find the channel plugin and send the message
+        channel_plugin = find_plugin(channel_type, plugin_type="channels")
+        if channel_plugin and hasattr(channel_plugin, 'send_message'):
+            try:
+                channel_plugin.send_message(text, target)
+                print(f"Message sent via {channel_type} to {target}.")
+            except Exception as e:
+                print(f"Error sending message via {channel_type}: {e}")
+        else:
+            print(f"Could not find or use channel plugin: {channel_type}")
+
     def process_message(self, user_message: str, source: str) -> str:
         """
         Processes a user's message through the full chat pipeline.
@@ -83,7 +139,6 @@ class Router:
             return "Input cannot be empty."
 
         self.context_manager.add_message("user", user_message)
-        # Use the in-memory history directly
         full_history = self.context_manager.history
         
         model_name = get_key(os.environ.get("ENV_PATH", ".env"), "LLM_MODEL")

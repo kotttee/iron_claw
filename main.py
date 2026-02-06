@@ -10,8 +10,9 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from src.core.entities import Router
+from src.core.ai.router import Router
 from src.core.ai.onboarding import run_onboarding_session
+from src.core.ai.settings import SettingsManager
 
 # --- App Setup ---
 app = typer.Typer(
@@ -26,6 +27,11 @@ def get_project_root() -> Path:
     """Helper to find the project root directory."""
     return Path(__file__).parent.resolve()
 
+def update_provider():
+    """Starts the interactive process to update the LLM provider."""
+    console.print(Panel("Provider Configuration", title="[bold cyan]Settings[/bold cyan]"))
+    settings_manager = SettingsManager()
+    settings_manager.configure_provider()
 
 # --- CLI Commands ---
 
@@ -88,8 +94,14 @@ def onboard():
 
 
 @app.command(name="config")
-def config_command():
-    """Launches an interactive menu to configure the agent."""
+def config_command(
+    provider: bool = typer.Option(False, "--provider", help="Update the LLM provider directly.")
+):
+    """Launches an interactive menu to configure the agent or update the provider."""
+    if provider:
+        update_provider()
+        return
+
     console.print(
         Panel("⚙️ [bold blue]Interactive Configuration[/bold blue]", expand=False)
     )
@@ -98,7 +110,8 @@ def config_command():
         main_choice = questionary.select(
             "Configuration Menu",
             choices=[
-                "👤 Identity (Chat Setup)",
+                "👤 Identity (Re-run Onboarding)",
+                "🔧 Provider (Update LLM)",
                 "📡 Channels",
                 "🛠️ Tools",
                 "🧠 Core Settings",
@@ -110,14 +123,17 @@ def config_command():
         if not main_choice or main_choice == "❌ Exit":
             break
 
-        if main_choice == "👤 Identity (Chat Setup)":
+        if main_choice == "👤 Identity (Re-run Onboarding)":
             console.print(
-                "[bold yellow]Starting identity setup... This will overwrite existing profiles.[/bold yellow]"
+                "[bold yellow]This will start the conversational setup to redefine the AI and user profiles.[/bold yellow]"
             )
             if questionary.confirm("Do you want to proceed?").ask():
                 run_onboarding_session()
             else:
                 console.print("[dim]Operation cancelled.[/dim]")
+        
+        elif main_choice == "🔧 Provider (Update LLM)":
+            update_provider()
 
         elif main_choice == "📡 Channels":
             console.print("[yellow]Channel configuration is not yet implemented.[/yellow]")
@@ -126,24 +142,9 @@ def config_command():
             console.print("[yellow]Tool configuration is not yet implemented.[/yellow]")
 
         elif main_choice == "🧠 Core Settings":
-            # This is a placeholder for more complex settings
-            router = Router()
-            current_limit = router.context_manager.max_history_limit
-            new_limit_str = questionary.text(
-                f"Enter new short-term memory limit (messages, current: {current_limit}):",
-                default=str(current_limit),
-            ).ask()
-            try:
-                new_limit = int(new_limit_str)
-                # In a real app, you'd save this to a config file.
-                # For now, we just demonstrate the flow.
-                console.print(
-                    f"[green]✔ History limit would be updated to {new_limit}. (Demonstration)[/green]"
-                )
-            except (ValueError, TypeError):
-                console.print("[red]Invalid input. Please enter a number.[/red]")
+            settings_manager = SettingsManager()
+            settings_manager.configure_preferences()
 
-        # Pause before showing the menu again
         if main_choice != "❌ Exit":
             questionary.press_any_key_to_continue(
                 "Press any key to return to the menu..."
@@ -214,7 +215,6 @@ def update():
 
         except subprocess.CalledProcessError as e:
             console.print(f"[bold red]Git update failed: {e.stderr.decode()}[/bold red]")
-            # Attempt to restore backup even on failure
             console.print("[yellow]Update failed. Restoring from backup...[/yellow]")
             raise typer.Exit(1)
 

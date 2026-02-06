@@ -8,7 +8,7 @@ from src.interfaces.channel import BaseChannel
 from src.core.interfaces import ConfigurablePlugin
 
 if TYPE_CHECKING:
-    from src.core.router import MessageRouter
+    from src.core.ai.router import Router
 
 
 class ConsoleChannel(BaseChannel, ConfigurablePlugin):
@@ -40,15 +40,13 @@ class ConsoleChannel(BaseChannel, ConfigurablePlugin):
         """Console is always enabled."""
         return True
 
-    async def start(self, config: Dict[str, Any], router: "MessageRouter"):
+    async def start(self, config: Dict[str, Any], router: "Router"):
         """
         Starts the console interaction loop.
         """
         console = Console()
         console.print(f"[bold blue]Starting console channel...[/bold blue]")
         console.print(f"Agent Personality: {self.config.get('personality', 'Not set')}")
-        
-        user_id = "console_user"
 
         while True:
             try:
@@ -57,7 +55,7 @@ class ConsoleChannel(BaseChannel, ConfigurablePlugin):
                 )
                 if user_input.lower() in ["exit", "quit"]:
                     break
-                await router.route_message(self, user_id, user_input)
+                router.process_message(user_input, "console")
             except (KeyboardInterrupt, EOFError):
                 break
         

@@ -4,11 +4,10 @@ from pathlib import Path
 from typing import Any, Dict
 
 from rich.console import Console
-from rich.spinner import Spinner
 
-from src.core.router import MessageRouter
+from src.core.ai.router import Router
 from src.core.scheduler import SchedulerManager
-from src.core.plugin_loader import load_plugins
+from src.core.plugin_manager import get_all_plugins
 from src.interfaces.channel import BaseChannel
 
 class Kernel:
@@ -33,7 +32,7 @@ class Kernel:
         
         # Initialize core components
         self.scheduler = SchedulerManager()
-        self.router = MessageRouter(self.config, self.scheduler)
+        self.router = Router(self.config, self.scheduler)
         
         # Start the scheduler and link it to the router
         self.scheduler.start(self.router)
@@ -54,7 +53,7 @@ class Kernel:
 
     async def _run_main_loop(self):
         """The main asynchronous event loop that runs all enabled channels."""
-        all_plugin_classes = load_plugins(BaseChannel, "channels")
+        all_plugin_classes = get_all_plugins(BaseChannel, "channels")
         all_plugins = {p().plugin_id: p for p in all_plugin_classes}
 
         tasks = []
@@ -85,8 +84,8 @@ class Kernel:
         """
         self.console.rule("[bold blue]IronClaw Kernel Initializing[/bold blue]")
         try:
-            with Spinner("dots", text="Agent is running... Press Ctrl+C to stop."):
-                asyncio.run(self._run_main_loop())
+            self.console.print("Agent is running... Press Ctrl+C to stop.")
+            asyncio.run(self._run_main_loop())
         except KeyboardInterrupt:
             self.console.print("\n") # Move to the next line after Ctrl+C
         finally:

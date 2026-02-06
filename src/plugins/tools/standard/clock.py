@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from src.interfaces.tool import BaseTool
 
 if TYPE_CHECKING:
-    from src.core.scheduler import SchedulerManager
+    pass
 
 class SetReminderArgs(BaseModel):
     iso_timestamp: str = Field(..., description="The reminder time in strict ISO 8601 format (e.g., '2024-08-15T10:30:00').")
