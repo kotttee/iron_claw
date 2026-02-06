@@ -45,7 +45,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             temp_bot = Bot(token=token)
             bot_user = await temp_bot.get_me()
             await temp_bot.session.close() # Clean up the session
-            return True, f"OK (Bot: @{bot_user.username})"
+            return True, f"OK (Bot: @{bot_user.username}) Admin id: {admin_id_str}"
         except TelegramUnauthorizedError:
             return False, "Telegram Bot Token is invalid or expired."
         except Exception as e:
