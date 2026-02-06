@@ -58,7 +58,10 @@ def configure_engine() -> Optional[Dict[str, Any]]:
         provider_display_name = provider_choices[choice]
         provider_config = providers_config[provider_display_name]
         
+        # FIX: Use .get() for safety and use the correct key 'provider_type'.
+        provider_type = provider_config.get("provider_type", "unknown")
         api_key_name = provider_config.get("api_key_name", "API_KEY")
+        
         api_key = Prompt.ask(f"Enter your {api_key_name}")
 
         try:
@@ -80,14 +83,13 @@ def configure_engine() -> Optional[Dict[str, Any]]:
                 provider_instance.chat(model, [{"role": "user", "content": "Hello"}], "You are a test bot.")
                 console.print("[bold green]✔ Connection successful![/bold green]")
                 
-                provider_name_for_env = provider_config.get("provider_type", "custom")
-                env_content = f"LLM_PROVIDER={provider_name_for_env}\n{api_key_name}={api_key}\nLLM_MODEL={model}\n"
+                env_content = f"LLM_PROVIDER={provider_type}\n{api_key_name}={api_key}\nLLM_MODEL={model}\n"
                 if base_url := provider_config.get("base_url"):
                     env_content += f"LLM_BASE_URL={base_url}\n"
                 save_file(ENV_PATH, env_content)
                 console.print(f"[green]✔ Credentials saved to {ENV_PATH}[/green]")
                 
-                return {"provider": provider_instance, "model": model, "provider_name": provider_name_for_env}
+                return {"provider": provider_instance, "model": model, "provider_name": provider_type}
             except Exception as e:
                 console.print(Panel(f"[bold red]Connection Failed![/bold red]\nError: {e}", title="Error", border_style="red"))
                 if not Prompt.ask("[yellow]Try again?[/yellow]", choices=["y", "n"], default="y") == "y":
