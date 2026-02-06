@@ -35,7 +35,6 @@ class ConfigurablePlugin(ABC):
         Loads the plugin's configuration from its JSON file.
         If the file doesn't exist, initializes with an empty dictionary.
         """
-        ensure_dirs()  # Ensure ~/.iron_claw/data/configs exists
         if self.config_path.exists():
             try:
                 self.config = json.loads(self.config_path.read_text(encoding="utf-8"))
@@ -79,7 +78,6 @@ class ConfigurablePlugin(ABC):
             key (str): The environment variable name (e.g., 'TELEGRAM_TOKEN').
             value (str): The secret value to save.
         """
-        ensure_dirs()
         if not ENV_PATH.exists():
             ENV_PATH.touch()
         
