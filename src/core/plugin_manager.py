@@ -58,7 +58,7 @@ def load_plugin_from_module(module: ModuleType, module_name: str, category: str,
             'name': module_name,
             'description': inspect.getdoc(module.run) or "No description provided.",
             'category': category,
-            'is_enabled': lambda: True, # Functional tools are enabled by default
+            'is_enabled': lambda self: True, # Functional tools are enabled by default
             'run': module.run,
             'execute': lambda self, **kwargs: module.run(**kwargs)
         })()

@@ -30,6 +30,7 @@ class Router:
         self.plugin_manager = get_all_plugins(router=self)
         self.system_prompt = self._build_system_prompt()
         self.active_channels = []
+        self.last_channel_name = None
 
     def register_channel(self, channel):
         """
@@ -109,22 +110,38 @@ class Router:
         
         return base_prompt
 
+    def get_output_channel(self, source: str | None = None):
+        """
+        Determines the output channel. Prefers the source channel, then the last used channel,
+        then the default preferred channel.
+        """
+        target_channel_name = source or self.last_channel_name
+        
+        if target_channel_name:
+            channel_instance = next((c for c in self.active_channels if c.name == target_channel_name), None)
+            if channel_instance:
+                if channel_instance.name == 'telegram_bot':
+                    admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
+                    if admin_id:
+                        return channel_instance, admin_id
+                else: # console or other simple channels
+                    return channel_instance, None
+
+        # Fallback to preferred channel if specific one not found or not usable
+        return self.get_preferred_output_channel()
+
     def get_preferred_output_channel(self):
         """
-        Determines the preferred output channel based on active channels.
-        Returns the channel instance and target.
+        Determines the default preferred output channel (e.g., a network channel over console).
         """
-        # Default to console
-        console_channel = next((c for c in self.active_channels if c.name == 'console'), None)
-
-        # Check for a network channel like Telegram, which is preferred
         for channel in self.active_channels:
-            if channel.name == 'telegram' and channel.is_enabled():
+            if channel.name == 'telegram_bot' and channel.is_enabled():
                 admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
                 if admin_id:
                     return channel, admin_id
         
-        return console_channel, None
+        # Default to console if no other preference matches
+        return next((c for c in self.active_channels if c.name == 'console'), None), None
 
 
     def handle_scheduled_event(self, event_instruction: str):
@@ -171,41 +188,32 @@ class Router:
         # Send the response to the appropriate channel
         self._send_to_channel(response_text)
 
-    def _send_to_channel(self, text: str):
+    def _send_to_channel(self, text: str, source: str | None = None):
         """
-        Sends a message to the preferred output channel using a registered instance.
+        Sends a message to the appropriate output channel using a registered instance.
         """
-        channel_instance, target = self.get_preferred_output_channel()
+        channel_instance, target = self.get_output_channel(source)
 
-        console.print(f"Router: Sending message to {channel_instance.name} (target: {target})")
         if not channel_instance:
-            console.print("Error: No active/preferred output channel found.")
+            console.print("[bold red]Error: No active output channel found to send message.[/bold red]")
             return
 
-        if channel_instance.name == 'console':
-            # Console channel might just print, or have a send_message method
-            if hasattr(channel_instance, 'send_message') and callable(getattr(channel_instance, 'send_message')):
-                 channel_instance.send_message(text)
-            else:
-                 console.print(f"Output (Console): {text}")
-            return
-
-        if hasattr(channel_instance, 'send_message') and callable(getattr(channel_instance, 'send_message')):
-            try:
-                channel_instance.send_message(text, target)
-                console.print(f"Message sent via {channel_instance.name} to {target}.")
-            except Exception as e:
-                console.print(f"Error sending message via {channel_instance.name}: {e}")
-        else:
-            console.print(f"Could not find or use send_message on channel instance: {channel_instance.name}")
+        console.print(f"Router: Sending message to {channel_instance.name} (target: {target or 'default'})")
+        
+        try:
+            channel_instance.send_message(text, target)
+            console.print(f"Message sent successfully via {channel_instance.name}.")
+        except Exception as e:
+            console.print(f"[bold red]Error sending message via {channel_instance.name}: {e}[/bold red]")
 
 
     def process_message(self, user_message: str, source: str) -> None:
         """
         Processes a user's message through the full chat pipeline, including tool execution.
         """
+        self.last_channel_name = source
         if not user_message:
-            self._send_to_channel("Input cannot be empty.")
+            self._send_to_channel("Input cannot be empty.", source)
             return
 
         self.context_manager.add_message("user", user_message)
@@ -233,7 +241,7 @@ class Router:
                 self.context_manager.add_message("user", f"[TOOL RESULT for {tool_name}]: {tool_result}")
                 continue
             else:
-                self._send_to_channel(assistant_response)
+                self._send_to_channel(assistant_response, source)
                 return
 
         # If the loop completes, it means we've hit the max iterations
@@ -245,7 +253,7 @@ class Router:
             messages=self.context_manager.history,
             system_prompt=self.system_prompt
         )
-        self._send_to_channel(final_response)
+        self._send_to_channel(final_response, source)
 
 
     def _parse_tool_call(self, text: str) -> dict | None:

@@ -19,6 +19,7 @@ from src.core.ai.settings import SettingsManager
 from src.core.kernel import Kernel
 from src.core.paths import DATA_ROOT, BASE_DIR, ENV_PATH
 from src.core.plugin_manager import get_all_plugins
+from src.interfaces.channel import BaseChannel
 
 # --- App Setup ---
 app = typer.Typer(
@@ -30,6 +31,31 @@ console = Console()
 
 PID_DIR = Path(tempfile.gettempdir())
 PID_FILE = PID_DIR / "iron_claw.pid"
+
+# --- Global Kernel/Router Instance ---
+# This allows the `talk` command to access the same context as the running agent
+_kernel_instance: Kernel | None = None
+
+def get_kernel() -> Kernel:
+    """Initializes and returns a singleton Kernel instance."""
+    global _kernel_instance
+    if _kernel_instance is None:
+        _kernel_instance = Kernel()
+    return _kernel_instance
+
+class ConsoleChannel(BaseChannel):
+    """A simple channel for console interaction used by the `talk` command."""
+    def __init__(self):
+        super().__init__(name="console", category="channel")
+
+    async def start(self, *args, **kwargs):
+        pass # Not needed for talk command
+
+    def send_message(self, text: str, target: str | None = None):
+        console.print(Markdown(text))
+
+    async def healthcheck(self):
+        return True, "OK"
 
 
 def is_running():
@@ -133,7 +159,7 @@ def start(
             console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
         
         try:
-            kernel = Kernel()
+            kernel = get_kernel()
             asyncio.run(kernel.start())
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             if os.isatty(sys.stdout.fileno()):
@@ -207,9 +233,16 @@ def status():
 def talk():
     """
     Starts the IronClaw terminal interface for seamless, continuous chat.
+    This command uses the same underlying context as the running agent.
     """
     try:
-        router = Router()
+        kernel = get_kernel()
+        router = kernel.router
+        
+        # Ensure the console channel is registered for this session
+        console_channel = ConsoleChannel()
+        router.register_channel(console_channel)
+
     except Exception as e:
         console.print(f"[bold red]Initialization Error: {e}[/bold red]")
         console.print(
@@ -225,6 +258,16 @@ def talk():
             expand=False,
         )
     )
+    
+    # Display recent history
+    console.print("[dim]... recent history ...[/dim]")
+    for message in router.context_manager.history[-6:]:
+        if message['role'] == 'user':
+            console.print(f"> {message['content']}")
+        elif message['role'] == 'assistant':
+            console.print(Markdown(message['content']))
+    console.print("[dim]....................[/dim]\n")
+
 
     while True:
         try:
@@ -233,9 +276,7 @@ def talk():
                 continue
 
             with console.status("[yellow]Thinking...[/yellow]", spinner="dots"):
-                response = router.process_message(user_input, source="console")
-
-            console.print(Markdown(response))
+                router.process_message(user_input, source="console")
 
         except (KeyboardInterrupt, EOFError):
             break
