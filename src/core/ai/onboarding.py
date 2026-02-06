@@ -34,11 +34,30 @@ def run_onboarding_session():
             console.print("[bold red]Provider setup is required to continue. Aborting onboarding.[/bold red]")
             return
 
+    # Step 1.5: Validate provider configuration by trying to use it.
+    kernel = None
+    while kernel is None:
+        try:
+            console.print("[bold cyan]Initializing and validating provider...[/bold cyan]")
+            temp_kernel = Kernel()
+            # Test the provider by listing models. This will fail if the API key is wrong.
+            # Assuming a `list_models` method exists on the provider.
+            temp_kernel.router.provider.list_models()
+            kernel = temp_kernel
+            console.print("[bold green]Provider configuration is valid.[/bold green]")
+        except Exception as e:
+            console.print(f"[bold red]Provider validation failed: {e}[/bold red]")
+            console.print("[bold yellow]This could be due to an invalid API key or a network issue.[/bold yellow]")
+            console.print("Let's run the setup wizard again.")
+            settings_manager.run_full_setup()
+            if not settings_manager.is_provider_configured():
+                console.print("[bold red]Provider setup was not completed. Aborting onboarding.[/bold red]")
+                return
+
     # Step 2: Conversational setup for AI persona and user profile.
     console.rule("[bold blue]Conversational Onboarding[/bold blue]")
     console.print("Let's set up the AI's identity and your user profile through a quick chat.")
     
-    kernel = Kernel()
     kernel.router.context_manager.add_message("system", SYSTEM_PROMPT)
 
     # AI starts the conversation
@@ -53,7 +72,10 @@ def run_onboarding_session():
                 break
 
             kernel.router.context_manager.add_message("user", user_input)
-            response = kernel.router.provider.chat(kernel.router.context_manager.messages)
+            response = kernel.router.provider.chat(
+                model=kernel.router.model_name,
+                messages=kernel.router.context_manager.history
+            )
             kernel.router.context_manager.add_message("assistant", response)
 
             if "###SAVE_IDENTITY###" in response:
@@ -69,7 +91,6 @@ def run_onboarding_session():
                         console.print("[bold red]Error: Invalid data. 'ai_persona', 'user_profile', or 'preferences' missing.[/bold red]")
                         continue
 
-                    # Use the existing IdentityManager to save the markdown files
                     identity_manager = IdentityManager()
                     result = identity_manager.run(ai_persona, user_profile, preferences)
                     console.print(f"[bold green]{result}[/bold green]")
@@ -78,7 +99,7 @@ def run_onboarding_session():
                     break
                 except (json.JSONDecodeError, IndexError) as e:
                     console.print(f"[bold red]Error parsing identity data: {e}[/bold red]")
-                    kernel.router.context_manager.messages.pop() # Let the model try again
+                    kernel.router.context_manager.history.pop()
                     continue
             else:
                 console.print(Markdown(response))
