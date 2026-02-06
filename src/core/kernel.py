@@ -80,7 +80,12 @@ class Kernel:
                     self.router.register_channel(channel_instance)
                     
                     sig = inspect.signature(channel_instance.start)
-                    kwargs = {'router': self.router} if 'router' in sig.parameters else {}
+                    kwargs = {}
+                    if 'config' in sig.parameters:
+                        kwargs['config'] = getattr(channel_instance, 'config', {})
+                    if 'router' in sig.parameters:
+                        kwargs['router'] = self.router
+
                     tasks.append(asyncio.create_task(channel_instance.start(**kwargs)))
                 else:
                     console.print(f"⚠️ [yellow]Healthcheck FAILED for channel '{channel_instance.name}': {message}.[/yellow]")
