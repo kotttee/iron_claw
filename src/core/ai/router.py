@@ -163,6 +163,7 @@ class Router:
         """
         channel_instance, target = self.get_preferred_output_channel()
 
+        console.print(f"Router: Sending message to {channel_instance.name} (target: {target})")
         if not channel_instance:
             console.print("Error: No active/preferred output channel found.")
             return
