@@ -7,7 +7,7 @@
   },
   "xAI (Grok)": {
     "provider_name": "groq",
-    "api_key_name": "GROQ_API_KEY",
+    "api_key_name": "X_AI_API_KEY",
     "base_url": "https://api.groq.com/openai/v1",
     "models_endpoint": "/models"
   },

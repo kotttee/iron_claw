@@ -3,6 +3,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib import request, error
 
 import litellm
 from rich.console import Console
@@ -42,12 +43,27 @@ def load_providers() -> Dict[str, Any]:
         console.print(f"[bold red]Error: Could not parse {PROVIDERS_PATH}.[/bold red]")
         return {}
 
-def get_available_models(provider: str, api_key: str, base_url: Optional[str]) -> List[str]:
-    try:
-        models = litellm.get_model_list(api_key=api_key, base_url=base_url)
-        return models or []
-    except Exception:
+def get_available_models(api_key: str, base_url: Optional[str], models_endpoint: Optional[str]) -> List[str]:
+    """
+    FIX: Fetches the list of available models from a provider's API endpoint directly.
+    """
+    if not base_url or not models_endpoint:
         return []
+
+    url = base_url.rstrip('/') + models_endpoint
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    try:
+        req = request.Request(url, headers=headers)
+        with request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode('utf-8'))
+                if 'data' in data and isinstance(data['data'], list):
+                    return sorted([model['id'] for model in data['data'] if 'id' in model])
+    except (error.URLError, json.JSONDecodeError, TimeoutError, KeyError):
+        # Silently fail, allowing for manual entry.
+        return []
+    return []
 
 def configure_engine() -> Optional[Dict[str, Any]]:
     """Phase 1: Interactively configures and tests the LLM backend."""
@@ -63,10 +79,9 @@ def configure_engine() -> Optional[Dict[str, Any]]:
         console.print(Panel("Select your LLM Provider.", title="[bold cyan]LLM Setup[/bold cyan]", border_style="cyan"))
         choice_desc = "\n".join([f"[{i}] {name}" for i, name in provider_choices.items()])
         
-        # FIX: Combine prompt and description into a single string.
         prompt_text = f"Choose an option\n\n{choice_desc}"
         choice = Prompt.ask(prompt_text, choices=list(provider_choices.keys()))
-
+        
         selected_key = provider_choices[choice]
         
         if selected_key == "Custom/Other":
@@ -75,20 +90,27 @@ def configure_engine() -> Optional[Dict[str, Any]]:
             base_url = Prompt.ask("Enter the full API Base URL")
             model = Prompt.ask("Enter the full model name")
             api_key_name = f"{provider_name.upper()}_API_KEY"
+            models_endpoint = "/models" # Assume standard for custom
         else:
             provider_config = providers[selected_key]
             provider_name = provider_config["provider_name"]
             api_key_name = provider_config["api_key_name"]
             base_url = provider_config["base_url"]
-            api_key = Prompt.ask(f"Enter your {api_key_name}", password=True)
+            models_endpoint = provider_config.get("models_endpoint")
+            
+            console.print(f"[yellow]Warning:[/yellow] Your API key will be visible as you type.")
+            api_key = Prompt.ask(f"Enter your {api_key_name}")
             
             with console.status("[yellow]Fetching available models...", spinner="dots"):
-                available_models = get_available_models(provider_name, api_key, base_url)
+                # FIX: Pass the models_endpoint to the revised function.
+                available_models = get_available_models(api_key, base_url, models_endpoint)
             
             if available_models:
+                console.print(f"[green]✔ Found {len(available_models)} available models.[/green]")
                 model = Prompt.ask("Select a model", choices=available_models, default=available_models[0])
             else:
-                model = Prompt.ask("Could not fetch models. Please enter model name manually")
+                console.print("[yellow]Warning:[/yellow] Could not fetch models. Please enter model name manually.")
+                model = Prompt.ask("Enter model name")
 
         with console.status("[yellow]Testing connection...", spinner="dots"):
             try:
