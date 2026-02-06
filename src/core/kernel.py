@@ -37,9 +37,11 @@ class Kernel:
 
         active_channel_instances = []
         for plugin_module in channel_plugins:
-            # A convention to derive class name from module name, e.g., console.py -> ConsoleChannel
-
             if hasattr(plugin_module, "name"):
+                # Skip the console channel
+                if plugin_module.name == "console":
+                    continue
+
                 channel_class = getattr(plugin_module, "name")
                 
                 # Pass the router instance to the channel constructor

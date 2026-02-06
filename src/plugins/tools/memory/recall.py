@@ -8,7 +8,7 @@ from src.interfaces.tool import BaseTool
 
 # --- File Naming Standard ---
 LOGS_DIR = Path("data/logs")
-HISTORY_PATH = LOGS_DIR / "history.jsonl"
+HISTORY_PATH = LOGS_DIR / "history.json"
 
 class SearchHistoryTool(BaseTool):
     """A tool to search the raw interaction history log."""
