@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from functools import partial
 from typing import Any, Dict, Tuple, TYPE_CHECKING
 
@@ -7,6 +6,7 @@ from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ChatAction
 from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramUnauthorizedError
+from rich.console import Console
 
 from src.interfaces.channel import BaseChannel
 from src.core.interfaces import ConfigurablePlugin
@@ -14,7 +14,7 @@ from src.core.interfaces import ConfigurablePlugin
 if TYPE_CHECKING:
     from src.core.ai.router import Router
 
-logger = logging.getLogger(__name__)
+console = Console()
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TYPING_INTERVAL_SECONDS = 4.5
@@ -53,9 +53,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
 
     def setup_wizard(self) -> None:
         """Interactively prompts for Telegram configuration for a single admin user."""
-        from rich.console import Console
         from rich.prompt import Prompt
-        console = Console()
 
         console.print("[bold blue]Configuring Telegram Bot Channel...[/bold blue]")
         console.print("You can get a token by talking to [bold magenta]@BotFather[/bold magenta] on Telegram.")
@@ -97,17 +95,17 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
         dp.message(F.photo)(partial(self._handle_photo, router=router))
         dp.message(F.document)(partial(self._handle_document, router=router))
 
-        logger.info(f"Starting Telegram bot for admin user {self.admin_id}.")
+        console.print(f"Starting Telegram bot for admin user {self.admin_id}.")
         try:
             await dp.start_polling(self.bot)
         except Exception as e:
-            logger.critical(f"Fatal error starting Telegram bot: {e}", exc_info=True)
+            console.print(f"[bold red]Fatal error starting Telegram bot: {e}[/bold red]")
 
     async def _is_user_allowed(self, message: types.Message) -> bool:
         """Checks if the message is from the configured admin user."""
         if not message.from_user or message.from_user.id != self.admin_id:
             if message.from_user:
-                logger.warning(f"Unauthorized access attempt by user {message.from_user.id} (@{message.from_user.username}).")
+                console.print(f"[yellow]Unauthorized access attempt by user {message.from_user.id} (@{message.from_user.username}).[/yellow]")
             return False
         return True
 
@@ -157,7 +155,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
     def send_message(self, text: str, target: str):
         """Sends a message to the target user. Required by the Router."""
         if not self.bot:
-            logger.error("Cannot send message, bot is not initialized.")
+            console.print("[bold red]Cannot send message, bot is not initialized.[/bold red]")
             return
         
         asyncio.create_task(self._send_text_async(target, text))
@@ -169,7 +167,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
         try:
             chat_id = int(user_id)
         except ValueError:
-            logger.error(f"Invalid target user_id for Telegram: {user_id}")
+            console.print(f"[bold red]Invalid target user_id for Telegram: {user_id}[/bold red]")
             return
 
         if len(text) <= TELEGRAM_MAX_MESSAGE_LENGTH:

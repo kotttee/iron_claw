@@ -2,6 +2,7 @@ from dotenv import load_dotenv, get_key
 import os
 import json
 import inspect
+from rich.console import Console
 
 from ..providers import provider_factory
 from ..context_manager import ContextManager
@@ -12,6 +13,8 @@ from src.core.paths import CONFIG_PATH
 
 # Load environment variables from .env file
 load_dotenv()
+
+console = Console()
 
 class Router:
     """
@@ -34,7 +37,7 @@ class Router:
         """
         if channel not in self.active_channels:
             self.active_channels.append(channel)
-            print(f"Router: Registered channel {channel.name}")
+            console.print(f"Router: Registered channel {channel.name}")
 
     def _initialize_provider(self):
         """Initializes the LLM provider from config.json."""
@@ -115,7 +118,7 @@ class Router:
         Handles a scheduled event by generating content and sending it to the
         preferred channel. Supports tool execution.
         """
-        print(f"Handling scheduled event: {event_instruction}")
+        console.print(f"Handling scheduled event: {event_instruction}")
         
         system_prompt = self.system_prompt + "\n\nYou are executing a scheduled task. Follow the instructions and use tools if necessary."
         
@@ -139,7 +142,7 @@ class Router:
                 tool_name = tool_call.get("tool")
                 tool_args = tool_call.get("args", {})
                 
-                print(f"Router (Scheduled): Executing tool '{tool_name}'")
+                console.print(f"Router (Scheduled): Executing tool '{tool_name}'")
                 tool_result = self._execute_tool(tool_name, tool_args)
                 
                 messages.append({"role": "user", "content": f"[TOOL RESULT for {tool_name}]: {tool_result}"})
@@ -161,7 +164,7 @@ class Router:
         channel_instance, target = self.get_preferred_output_channel()
 
         if not channel_instance:
-            print("Error: No active/preferred output channel found.")
+            console.print("Error: No active/preferred output channel found.")
             return
 
         if channel_instance.name == 'console':
@@ -169,17 +172,17 @@ class Router:
             if hasattr(channel_instance, 'send_message') and callable(getattr(channel_instance, 'send_message')):
                  channel_instance.send_message(text)
             else:
-                 print(f"Output (Console): {text}")
+                 console.print(f"Output (Console): {text}")
             return
 
         if hasattr(channel_instance, 'send_message') and callable(getattr(channel_instance, 'send_message')):
             try:
                 channel_instance.send_message(text, target)
-                print(f"Message sent via {channel_instance.name} to {target}.")
+                console.print(f"Message sent via {channel_instance.name} to {target}.")
             except Exception as e:
-                print(f"Error sending message via {channel_instance.name}: {e}")
+                console.print(f"Error sending message via {channel_instance.name}: {e}")
         else:
-            print(f"Could not find or use send_message on channel instance: {channel_instance.name}")
+            console.print(f"Could not find or use send_message on channel instance: {channel_instance.name}")
 
 
     def process_message(self, user_message: str, source: str) -> str:
@@ -209,9 +212,9 @@ class Router:
                 tool_name = tool_call.get("tool")
                 tool_args = tool_call.get("args", {})
                 
-                print(f"Router: Executing tool '{tool_name}' with args {tool_args}")
+                console.print(f"Router: Executing tool '{tool_name}' with args {tool_args}")
                 tool_result = self._execute_tool(tool_name, tool_args)
-                print(f"Router: Tool result: {tool_result}")
+                console.print(f"Router: Tool result: {tool_result}")
                 
                 # Add tool result to context as a system message (or user message acting as system)
                 self.context_manager.add_message("user", f"[TOOL RESULT for {tool_name}]: {tool_result}")
