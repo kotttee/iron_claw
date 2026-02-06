@@ -19,7 +19,6 @@ from src.core.ai.settings import SettingsManager
 from src.core.kernel import Kernel
 from src.core.paths import DATA_ROOT, BASE_DIR, ENV_PATH
 from src.core.plugin_manager import get_all_plugins
-from src.interfaces.channel import BaseChannel
 
 # --- App Setup ---
 app = typer.Typer(
@@ -41,25 +40,6 @@ def get_kernel() -> Kernel:
     if _kernel_instance is None:
         _kernel_instance = Kernel()
     return _kernel_instance
-
-class ConsoleChannel(BaseChannel):
-    """A simple channel for console interaction."""
-    def __init__(self):
-        super().__init__(name="console", category="channel")
-
-    async def start(self, *args, **kwargs):
-        pass
-
-    def send_message(self, text: str, target: str | None = None):
-        console.print(Markdown(text))
-
-    async def healthcheck(self):
-        return True, "OK"
-
-    def setup_wizard(self) -> None:
-        """Console channel requires no setup."""
-        pass
-
 
 def is_running():
     """Check if the agent is running by checking the PID file."""
@@ -89,6 +69,7 @@ def configure_channels():
     
     configurable_channels = []
     for chan_class in channel_classes:
+        # The plugin manager now returns instantiated plugins
         instance = chan_class()
         if hasattr(instance, 'name') and instance.name == 'console':
             continue
@@ -150,8 +131,6 @@ def start(
         console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
         try:
             kernel = get_kernel()
-            # Register the console channel for direct output if needed
-            kernel.router.register_channel(ConsoleChannel())
             asyncio.run(kernel.start())
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
             console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
@@ -243,13 +222,6 @@ async def talk_client():
 
             writer.write((user_input + '\n').encode())
             await writer.drain()
-            
-            # In this new model, the server's `process_message` will handle the response
-            # and send it to the appropriate channel. Since the `talk` command is now just
-            # an IPC client, it doesn't receive a direct response here. The output will
-            # appear in the main agent's log or the relevant channel (e.g., Telegram).
-            # For the user to see the response in the console, the main agent must have
-            # a ConsoleChannel registered and the router must direct the output there.
 
     except (KeyboardInterrupt, EOFError, asyncio.IncompleteReadError):
         console.print("\n[bold yellow]Exiting chat mode.[/bold yellow]")

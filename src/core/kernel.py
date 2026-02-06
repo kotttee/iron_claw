@@ -36,12 +36,8 @@ class Kernel:
                 message = data.decode().strip()
                 console.print(f"[dim]IPC received: {message}[/dim]")
                 
-                # Process the message through the router
-                self.router.process_message(message, source="ipc_client")
-                
-                # For now, we don't have a direct response mechanism in this PoC.
-                # The response is handled by the router's _send_to_channel.
-                # A more robust implementation might send a confirmation back.
+                # Process the message through the router, specifying 'console' as the source
+                self.router.process_message(message, source="console")
                 
         except (asyncio.IncompleteReadError, ConnectionResetError):
             pass
@@ -66,15 +62,14 @@ class Kernel:
         console.print("[cyan]Kernel: IPC server listening on port 8989.[/cyan]")
 
         # Discover and start channel plugins
-        channel_classes = self.plugin_manager.get("channels", [])
+        channel_plugins = self.plugin_manager.get("channels", [])
         tasks = [asyncio.create_task(ipc_server.serve_forever())]
 
-        if not channel_classes:
+        if not channel_plugins:
             console.print("[bold yellow]Kernel Warning: No channel plugins found.[/bold yellow]")
 
-        for channel_class in channel_classes:
+        for channel_instance in channel_plugins:
             try:
-                channel_instance = channel_class()
                 if isinstance(channel_instance, ConfigurablePlugin) and not channel_instance.is_enabled():
                     continue
                 
@@ -89,7 +84,7 @@ class Kernel:
                 else:
                     console.print(f"⚠️ [yellow]Healthcheck FAILED for channel '{channel_instance.name}': {message}.[/yellow]")
             except Exception as e:
-                console.print(f"🚨 [bold red]Error initializing channel {channel_class.__name__}: {e}[/bold red]")
+                console.print(f"🚨 [bold red]Error initializing channel {channel_instance.name}: {e}[/bold red]")
 
         if len(tasks) > 1: # More than just the IPC server
             console.print(f"[cyan]Kernel: Running {len(tasks) - 1} channel task(s). Press Ctrl+C to stop.[/cyan]")
