@@ -3,7 +3,7 @@ from functools import partial
 from typing import Any, Dict, Tuple, TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.enums import ChatAction
+from aiogram.enums import ChatAction, ParseMode
 from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramUnauthorizedError
 from rich.console import Console
@@ -188,5 +188,5 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             text = text[split_pos:].lstrip()
 
         for part in parts:
-            await self.bot.send_message(chat_id=chat_id, text=part, parse_mode="markdown")
+            await self.bot.send_message(chat_id=chat_id, text=part, parse_mode=ParseMode.MARKDOWN)
             await asyncio.sleep(2)
