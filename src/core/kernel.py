@@ -62,14 +62,15 @@ class Kernel:
         console.print("[cyan]Kernel: IPC server listening on port 8989.[/cyan]")
 
         # Discover and start channel plugins
-        channel_plugins = self.plugin_manager.get("channels", [])
+        channel_classes = self.plugin_manager.get("channels", [])
         tasks = [asyncio.create_task(ipc_server.serve_forever())]
 
-        if not channel_plugins:
+        if not channel_classes:
             console.print("[bold yellow]Kernel Warning: No channel plugins found.[/bold yellow]")
 
-        for channel_instance in channel_plugins:
+        for channel_class in channel_classes:
             try:
+                channel_instance = channel_class()
                 if isinstance(channel_instance, ConfigurablePlugin) and not channel_instance.is_enabled():
                     continue
                 
@@ -84,7 +85,7 @@ class Kernel:
                 else:
                     console.print(f"⚠️ [yellow]Healthcheck FAILED for channel '{channel_instance.name}': {message}.[/yellow]")
             except Exception as e:
-                console.print(f"🚨 [bold red]Error initializing channel {channel_instance.name}: {e}[/bold red]")
+                console.print(f"🚨 [bold red]Error initializing channel {getattr(channel_class, '__name__', 'UnknownChannel')}: {e}[/bold red]")
 
         if len(tasks) > 1: # More than just the IPC server
             console.print(f"[cyan]Kernel: Running {len(tasks) - 1} channel task(s). Press Ctrl+C to stop.[/cyan]")
