@@ -1,178 +1,198 @@
-import json
-import os
-import re
-from pathlib import Path
-from typing import Any, Dict, Optional
-
+import questionary
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
+from dotenv import set_key, get_key, find_dotenv
 
-# Import the new native provider factory
-from src.core.providers import get_provider
-from src.core.loader import load_custom_providers
+from src.core.plugin_manager import get_all_plugins
+from src.core.interfaces import ConfigurablePlugin, DATA_ROOT
+from src.core.providers import provider_factory # Updated import
 
-# --- Configuration ---
-PROJECT_ROOT = Path(os.environ.get("IRONCLAW_ROOT", Path.home() / ".iron_claw"))
-DATA_DIR = PROJECT_ROOT / "data"
-IDENTITY_DIR = DATA_DIR / "identity"
-CONFIG_PATH = DATA_DIR / "config.json"
-ENV_PATH = PROJECT_ROOT / ".env"
-PROVIDERS_PATH = DATA_DIR / "providers.json"
-AI_IDENTITY_PATH = IDENTITY_DIR / "ai.md"
-USER_IDENTITY_PATH = IDENTITY_DIR / "user.md"
-
+# --- Constants ---
 console = Console()
+# Ensure .env file exists for dotenv functions to work reliably
+env_path_str = find_dotenv()
+if not env_path_str:
+    env_path_str = str(DATA_ROOT.parent / ".env")
+    with open(env_path_str, "a"):
+        pass # Create the file if it doesn't exist
+ENV_PATH = env_path_str
 
-def save_file(path: Path, content: str):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
 
-def load_providers_config() -> Dict[str, Any]:
-    """Loads the full provider configuration from providers.json."""
-    if not PROVIDERS_PATH.exists():
-        console.print(f"[bold red]Error: Provider definition file not found at {PROVIDERS_PATH}[/bold red]")
-        return {}
-    try:
-        return json.loads(PROVIDERS_PATH.read_text())
-    except json.JSONDecodeError:
-        console.print(f"[bold red]Error: Could not parse {PROVIDERS_PATH}.[/bold red]")
-        return {}
+# --- TUI Handlers ---
 
-def configure_engine() -> Optional[Dict[str, Any]]:
-    """Phase 1: Configures the LLM backend with improved validation."""
-    console.rule("[bold blue]Phase 1: Engine Configuration[/bold blue]")
+def handle_plugin_menu(category: str):
+    """Manages the TUI for a specific plugin category (channels or tools)."""
+    plugins = get_all_plugins()
+    plugin_list = plugins.get(category.lower(), [])
     
-    providers_config = load_providers_config()
-    if not providers_config: return None
-
-    provider_names = list(providers_config.keys())
-    provider_choices = {str(i+1): name for i, name in enumerate(provider_names)}
-    
-    while True:
-        console.print(Panel("Select your LLM Provider.", title="[bold cyan]LLM Setup[/bold cyan]", border_style="cyan"))
-        choice_desc = "\n".join([f"[{i}] {name}" for i, name in provider_choices.items()])
-        prompt_text = f"Choose an option\n\n{choice_desc}"
-        choice = Prompt.ask(prompt_text, choices=list(provider_choices.keys()))
-        
-        provider_display_name = provider_choices[choice]
-        provider_config = providers_config[provider_display_name]
-        
-        # FIX: Add validation for required keys from providers.json
-        required_keys = ["provider_type", "api_key_name", "base_url"]
-        if not all(key in provider_config for key in required_keys):
-            console.print(f"[bold red]Error:[/bold red] The configuration for '{provider_display_name}' in `providers.json` is incomplete. It must contain 'provider_type', 'api_key_name', and 'base_url'.")
-            continue
-
-        provider_type = provider_config["provider_type"]
-        api_key_name = provider_config["api_key_name"]
-        
-        api_key = Prompt.ask(f"Enter your {api_key_name}")
-
-        try:
-            provider_instance = get_provider(provider_config, api_key)
-        except ValueError as e:
-            console.print(f"[bold red]Error: {e}[/bold red]")
-            continue
-
-        with console.status("[yellow]Fetching available models...", spinner="dots"):
-            available_models = provider_instance.list_models()
-        
-        if available_models:
-            model = Prompt.ask("Select a model", choices=available_models, default=available_models[0])
-        else:
-            model = Prompt.ask("Could not fetch models. Please enter model name manually.")
-
-        with console.status("[yellow]Testing connection...", spinner="dots"):
-            try:
-                provider_instance.chat(model, [{"role": "user", "content": "Hello"}], "You are a test bot.")
-                console.print("[bold green]✔ Connection successful![/bold green]")
-                
-                env_content = f"LLM_PROVIDER={provider_type}\n{api_key_name}={api_key}\nLLM_MODEL={model}\n"
-                if base_url := provider_config.get("base_url"):
-                    env_content += f"LLM_BASE_URL={base_url}\n"
-                save_file(ENV_PATH, env_content)
-                console.print(f"[green]✔ Credentials saved to {ENV_PATH}[/green]")
-                
-                return {"provider": provider_instance, "model": model, "provider_display_name": provider_display_name, "provider_type": provider_type}
-            except Exception as e:
-                console.print(Panel(f"[bold red]Connection Failed![/bold red]\nError: {e}", title="Error", border_style="red"))
-                if not Prompt.ask("[yellow]Try again?[/yellow]", choices=["y", "n"], default="y") == "y":
-                    return None
-
-def initialize_soul(engine_config: Dict[str, Any]):
-    """Phase 2: The AI interviews the user to establish its own identity."""
-    console.rule("[bold blue]Phase 2: The 'Soul' Initialization[/bold blue]")
-    
-    provider = engine_config["provider"]
-    model: str = engine_config["model"]
-    
-    system_prompt = (
-        "You are the IronClaw Setup Wizard. Your goal is to configure your own personality by interviewing the user. "
-        "Ask these questions ONE BY ONE, waiting for their answer each time:\n"
-        "1. What should be my name?\n"
-        "2. What is my core role or personality?\n"
-        "3. Tell me about yourself, the user.\n\n"
-        "Once you have clear answers, you MUST end your response with ONLY a JSON block wrapped in ```json ... ``` containing: "
-        "{ \"ai_md\": \"...\", \"user_md\": \"...\", \"bot_name\": \"...\" }"
-    )
-    
-    messages = []
-    initial_message = "Hello! I'm the IronClaw Setup Wizard. Let's define my identity. First, what would you like my name to be?"
-    console.print(Panel(initial_message, title="[bold magenta]Setup Wizard[/bold magenta]", border_style="magenta"))
-    messages.append({"role": "assistant", "content": initial_message})
+    if not plugin_list:
+        console.print(f"[yellow]No {category} found.[/yellow]")
+        return
 
     while True:
-        user_input = Prompt.ask("[bold yellow]Your Reply[/bold yellow]")
-        messages.append({"role": "user", "content": user_input})
+        choices = [
+            questionary.Choice(
+                title=f"{p.get_status_emoji()} {p.name.capitalize()}",
+                value=p
+            ) for p in plugin_list
+        ]
+        choices.append(questionary.Separator())
+        choices.append(questionary.Choice(title="⬅️ Back", value="back"))
 
-        with console.status("[yellow]Thinking...", spinner="dots"):
-            ai_response = provider.chat(model, messages, system_prompt)
-        
-        messages.append({"role": "assistant", "content": ai_response})
+        selected_plugin = questionary.select(
+            f"Manage {category}",
+            choices=choices,
+            use_indicator=True
+        ).ask()
 
-        json_match = re.search(r"```json\s*(\{.*?\})\s*```", ai_response, re.DOTALL)
-        if json_match:
-            try:
-                config_data = json.loads(json_match.group(1))
-                console.print(Panel("Configuration data received. Finalizing setup...", title="[bold green]Complete[/bold green]", border_style="green"))
-                
-                save_file(AI_IDENTITY_PATH, config_data["ai_md"])
-                console.print(f"[green]✔ AI identity saved to {AI_IDENTITY_PATH}[/green]")
-                
-                save_file(USER_IDENTITY_PATH, config_data["user_md"])
-                console.print(f"[green]✔ User profile saved to {USER_IDENTITY_PATH}[/green]")
-                
-                main_config = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.exists() else {}
-                main_config["agent_name"] = config_data["bot_name"]
-                
-                # FIX: Store a more descriptive block in config.json
-                main_config["llm"] = {
-                    "provider_name": engine_config["provider_display_name"],
-                    "provider_type": engine_config["provider_type"],
-                    "model": model
-                }
-                save_file(CONFIG_PATH, json.dumps(main_config, indent=4))
-                console.print(f"[green]✔ Main configuration updated at {CONFIG_PATH}[/green]")
-                
+        if not selected_plugin or selected_plugin == "back":
+            break
+
+        # --- Plugin Action Menu ---
+        while True:
+            action = questionary.select(
+                f"Actions for {selected_plugin.name.capitalize()}",
+                choices=[
+                    questionary.Choice(
+                        f"Toggle Status (Currently: {selected_plugin.get_status_emoji()})",
+                        value="toggle"
+                    ),
+                    questionary.Choice("⚙️ Configure Settings", value="configure"),
+                    questionary.Separator(),
+                    questionary.Choice("⬅️ Back", value="back")
+                ]
+            ).ask()
+
+            if not action or action == "back":
                 break
-            except (json.JSONDecodeError, KeyError) as e:
-                error_msg = f"The AI provided an invalid JSON block. Error: {e}"
-                console.print(Panel(error_msg, title="[bold red]JSON Error[/bold red]", border_style="red"))
-                messages.append({"role": "system", "content": error_msg})
-        else:
-            console.print(Panel(ai_response, title="[bold magenta]Setup Wizard[/bold magenta]", border_style="magenta"))
+            
+            if action == "toggle":
+                new_state = selected_plugin.toggle_enabled()
+                console.print(f"[green]✔ {selected_plugin.name.capitalize()} is now {'enabled' if new_state else 'disabled'}.[/green]")
+            elif action == "configure":
+                # The plugin's own wizard takes over the screen
+                selected_plugin.setup_wizard()
+                console.print(f"[green]✔ Re-ran configuration for {selected_plugin.name.capitalize()}.[/green]")
 
-def run_ai_wizard():
-    """Main entry point function for the setup wizard."""
+
+def handle_ai_core_config():
+    """Interactive setup for the core LLM provider using the ProviderFactory."""
+    console.print(Panel("🧠 Configure AI Core", style="bold blue", expand=False))
+    
+    provider_names = provider_factory.get_provider_names()
+    if not provider_names:
+        console.print("[bold red]Error: Could not load any providers from providers.json.[/bold red]")
+        return
+
+    # Get the display name from providers.json
+    provider_display_name = questionary.select(
+        "Select LLM Provider:",
+        choices=provider_names,
+        default=get_key(ENV_PATH, "LLM_PROVIDER_NAME") or provider_names[0]
+    ).ask()
+
+    if not provider_display_name:
+        return # User cancelled
+
+    # Get the specific config and the required API key name
+    provider_config = provider_factory.get_provider_config(provider_display_name)
+    if not provider_config:
+        console.print(f"[bold red]Could not find config for {provider_display_name}[/bold red]")
+        return
+        
+    api_key_name = provider_config.get("api_key_name", "API_KEY") # Default to a generic name
+
+    api_key = questionary.text(
+        f"Enter your {api_key_name}:",
+        default=get_key(ENV_PATH, api_key_name) or ""
+    ).ask()
+
+    if not api_key:
+        console.print("[red]API Key is required.[/red]")
+        return
+
     try:
-        if engine_details := configure_engine():
-            initialize_soul(engine_details)
-            console.rule("[bold green]Setup is complete![/bold green]")
+        # Use the factory to create the provider instance
+        provider = provider_factory.create_provider(provider_display_name, api_key)
+        
+        with console.status("[yellow]Testing connection and fetching models...[/yellow]"):
+            models = provider.list_models()
+        
+        if not models:
+            console.print("[yellow]Could not fetch models automatically. Please enter manually.[/yellow]")
+            model_name = questionary.text("Model name:").ask()
         else:
-            console.print("[bold red]Setup aborted.[/bold red]")
-    except KeyboardInterrupt:
-        console.print("\n[bold red]Setup cancelled by user.[/bold red]")
+            console.print("[green]✔ Models fetched successfully.[/green]")
+            model_name = questionary.select("Select a model:", choices=models).ask()
+
+        if not model_name:
+            return # User cancelled
+
+        # Save all relevant info to the .env file
+        set_key(ENV_PATH, "LLM_PROVIDER_NAME", provider_display_name)
+        set_key(ENV_PATH, api_key_name, api_key)
+        set_key(ENV_PATH, "LLM_MODEL", model_name)
+        
+        console.print("[bold green]✔ AI Core configured successfully![/bold green]")
+
+    except Exception as e:
+        console.print(f"[bold red]An error occurred: {e}[/bold red]")
+
+
+def handle_identity_config():
+    """Interactive setup for the agent's identity."""
+    console.print(Panel("👤 Configure Identity", style="bold magenta", expand=False))
+    
+    ai_md_path = DATA_ROOT / "identity" / "ai.md"
+    user_md_path = DATA_ROOT / "identity" / "user.md"
+    
+    ai_md_path.parent.mkdir(exist_ok=True, parents=True)
+
+    ai_name = questionary.text("What is my name?", default="IronClaw").ask()
+    ai_role = questionary.text("Describe my core personality/role:", default="A helpful AI assistant.").ask()
+    user_info = questionary.text("Describe the user (you):", default="A developer building AI applications.").ask()
+
+    ai_md_content = f"# Name\n{ai_name}\n\n# Role\n{ai_role}"
+    ai_md_path.write_text(ai_md_content)
+    user_md_path.write_text(user_info)
+
+    console.print("[bold green]✔ Identity configured successfully![/bold green]")
+
+
+def main_menu():
+    """The main TUI loop for the setup wizard."""
+    console.print(Panel("Welcome to the [bold]IronClaw[/bold] Setup Wizard", style="bold green"))
+    
+    while True:
+        choice = questionary.select(
+            "What would you like to do?",
+            choices=[
+                questionary.Choice("🧠 Configure AI Core (LLM)", value="core"),
+                questionary.Choice("👤 Configure Identity (Persona)", value="identity"),
+                questionary.Choice("📡 Manage Channels", value="channels"),
+                questionary.Choice("🛠️ Manage Tools", value="tools"),
+                questionary.Separator(),
+                questionary.Choice("❌ Exit", value="exit")
+            ],
+            use_indicator=True
+        ).ask()
+
+        if not choice or choice == "exit":
+            break
+        
+        if choice == "core":
+            handle_ai_core_config()
+        elif choice == "identity":
+            handle_identity_config()
+        elif choice == "channels":
+            handle_plugin_menu("Channels")
+        elif choice == "tools":
+            handle_plugin_menu("Tools")
+            
+        questionary.press_any_key_to_continue().ask()
 
 if __name__ == "__main__":
-    run_ai_wizard()
+    try:
+        main_menu()
+    except (KeyboardInterrupt, TypeError):
+        console.print("\n[bold red]Setup aborted.[/bold red]")

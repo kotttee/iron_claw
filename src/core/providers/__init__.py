@@ -1,36 +1,92 @@
-from typing import Optional
+import json
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Type
+
 from .base import BaseProvider
 from .openai import OpenAIProvider
 from .xai import XAIProvider
-# Assuming a LocalProvider might exist in local.py, but will handle its absence.
-# from .local import LocalProvider
+# from .anthropic import AnthropicProvider # This would be needed for Anthropic support
 
-PROVIDER_CLASS_MAP = {
+# Maps the 'provider_type' string from JSON to the actual Python class.
+PROVIDER_CLASS_MAP: Dict[str, Type[BaseProvider]] = {
     "openai": OpenAIProvider,
     "xai": XAIProvider,
-    "grok": XAIProvider, # Alias for xai
-    # "local": LocalProvider,
+    # "anthropic": AnthropicProvider,
 }
 
-def get_provider(name: str, api_key: str, base_url: Optional[str] = None) -> BaseProvider:
+class ProviderFactory:
     """
-    Factory function to get an instance of a provider.
-
-    Args:
-        name: The name of the provider (e.g., "openai", "xai", "grok").
-        api_key: The API key for the provider.
-        base_url: The optional base URL for the provider's API.
-
-    Returns:
-        An instance of the specified provider.
-
-    Raises:
-        ValueError: If the provider name is unknown.
+    Handles loading and creating LLM providers based on a central JSON configuration.
+    This class is a singleton to ensure the config is loaded only once.
     """
-    provider_name = name.lower()
-    provider_class = PROVIDER_CLASS_MAP.get(provider_name)
+    _instance = None
+    _providers_config: Dict[str, Any] = {}
 
-    if not provider_class:
-        raise ValueError(f"Unknown provider: '{name}'. Supported providers are: {list(PROVIDER_CLASS_MAP.keys())}")
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ProviderFactory, cls).__new__(cls)
+            # The user is currently editing providers.json
+            config_path = Path("/Users/macbookpro/PycharmProjects/PycharmProjects/iron_claw/providers.json")
+            cls._instance._load_config(config_path)
+        return cls._instance
 
-    return provider_class(api_key=api_key, base_url=base_url)
+    def _load_config(self, config_path: Path):
+        """Loads the provider definitions from the specified JSON file."""
+        if not config_path.exists():
+            self._providers_config = {}
+            return
+        try:
+            self._providers_config = json.loads(config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            self._providers_config = {}
+
+    def get_provider_names(self) -> List[str]:
+        """Returns a list of user-friendly provider names from providers.json."""
+        return list(self._providers_config.keys())
+
+    def get_provider_config(self, name: str) -> Optional[Dict[str, Any]]:
+        """Gets the raw configuration for a provider by its display name."""
+        return self._providers_config.get(name)
+
+    def create_provider(self, name: str, api_key: str) -> BaseProvider:
+        """
+        Creates an instance of a provider using its display name.
+
+        Args:
+            name: The display name from providers.json (e.g., "OpenAI", "xAI (Grok)").
+            api_key: The API key for the provider.
+
+        Returns:
+            An instance of the corresponding BaseProvider subclass.
+
+        Raises:
+            ValueError: If the provider name is not found, its class is not mapped,
+                        or the API key is empty.
+        """
+        config = self.get_provider_config(name)
+        if not config:
+            raise ValueError(f"Provider '{name}' not found in providers.json.")
+
+        provider_type = config.get("provider_type")
+        base_url = config.get("base_url")
+
+        provider_class = PROVIDER_CLASS_MAP.get(provider_type)
+        if not provider_class:
+            raise ValueError(f"Provider type '{provider_type}' for '{name}' is not mapped to a Python class in PROVIDER_CLASS_MAP.")
+
+        if not api_key:
+            raise ValueError("API key cannot be empty.")
+
+        return provider_class(api_key=api_key, base_url=base_url)
+
+# A singleton instance for easy access throughout the application.
+#
+# Usage:
+# from src.core.providers import provider_factory
+#
+# provider_names = provider_factory.get_provider_names()
+# chosen_name = # ... get user choice, e.g., "OpenAI"
+# api_key = # ... get user input
+#
+# llm_provider = provider_factory.create_provider(chosen_name, api_key)
+provider_factory = ProviderFactory()
