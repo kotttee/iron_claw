@@ -36,7 +36,7 @@ class ConsoleChannel(BaseChannel, ConfigurablePlugin):
         """The 'talk' command handles the console loop, so this method does nothing."""
         pass
 
-    def send_reply(self, text: str, target: str):
+    def send_message(self, text: str, target: str):
         """Prints the AI's reply to the console."""
         ai_name = self.identity_manager.get_ai_name()
         console.print(f"\n[bold cyan]{ai_name}:[/bold cyan]")

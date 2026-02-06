@@ -26,7 +26,7 @@ class BaseChannel(ABC):
         raise NotImplementedError
         
     @abstractmethod
-    def send_reply(self, text: str, target: str):
+    def send_message(self, text: str, target: str):
         """
         Sends a reply back to the user on this channel.
         This method is called by the Router.
