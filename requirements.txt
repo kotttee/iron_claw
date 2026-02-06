@@ -1,8 +1,8 @@
 pydantic
 typer
 rich
-litellm
 aiogram
 python-dotenv
 APScheduler
 sqlalchemy
+requests
