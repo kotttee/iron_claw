@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import json
 from rich.console import Console
 from src.core.ai.router import Router
 from src.core.plugin_manager import get_all_plugins
@@ -18,63 +19,81 @@ class Kernel:
         console.print("[bold cyan]Kernel: Initializing...[/bold cyan]")
         try:
             self.router = Router()
-            # Pass the router to the plugin manager so it can be injected into tools
             self.plugin_manager = get_all_plugins(router=self.router)
         except Exception as e:
             console.print(f"[bold red]Kernel Error: Failed to initialize components: {e}[/bold red]")
             raise
 
+    async def handle_ipc_client(self, reader, writer):
+        """Callback to handle a client connection for IPC."""
+        console.print("[dim]IPC client connected.[/dim]")
+        try:
+            while True:
+                data = await reader.readline()
+                if not data:
+                    break
+                
+                message = data.decode().strip()
+                console.print(f"[dim]IPC received: {message}[/dim]")
+                
+                # Process the message through the router
+                self.router.process_message(message, source="ipc_client")
+                
+                # For now, we don't have a direct response mechanism in this PoC.
+                # The response is handled by the router's _send_to_channel.
+                # A more robust implementation might send a confirmation back.
+                
+        except (asyncio.IncompleteReadError, ConnectionResetError):
+            pass
+        finally:
+            console.print("[dim]IPC client disconnected.[/dim]")
+            writer.close()
+            await writer.wait_closed()
+
     async def start(self):
         """
-        Performs health checks on all channels and starts the healthy ones.
+        Performs health checks, starts channels, and runs the IPC server.
         """
         console.print("[bold green]Kernel: Starting main loop...[/bold green]")
         
+        # Start the scheduler
         if hasattr(self.router, 'scheduler_manager'):
             self.router.scheduler_manager.start(self.router)
 
+        # Start the IPC server
+        ipc_server = await asyncio.start_server(
+            self.handle_ipc_client, '127.0.0.1', 8989)
+        console.print("[cyan]Kernel: IPC server listening on port 8989.[/cyan]")
+
+        # Discover and start channel plugins
         channel_classes = self.plugin_manager.get("channels", [])
+        tasks = [asyncio.create_task(ipc_server.serve_forever())]
 
         if not channel_classes:
-            console.print("[bold yellow]Kernel Warning: No channel plugins found. Agent will be idle.[/bold yellow]")
-            return
+            console.print("[bold yellow]Kernel Warning: No channel plugins found.[/bold yellow]")
 
-        tasks = []
         for channel_class in channel_classes:
             try:
-                # Instantiate the channel class
                 channel_instance = channel_class()
+                if isinstance(channel_instance, ConfigurablePlugin) and not channel_instance.is_enabled():
+                    continue
                 
-                # Only proceed with enabled channels (if they are configurable)
-                if isinstance(channel_instance, ConfigurablePlugin):
-                    if not channel_instance.is_enabled():
-                        # Silently skip disabled plugins
-                        continue
-                
-                # Perform health check
                 is_healthy, message = await channel_instance.healthcheck()
-                
                 if is_healthy:
                     console.print(f"✅ [green]Healthcheck OK for channel '{channel_instance.name}': {message}[/green]")
                     self.router.register_channel(channel_instance)
                     
-                    # Prepare and create the start task
                     sig = inspect.signature(channel_instance.start)
-                    kwargs = {}
-                    if 'config' in sig.parameters:
-                        kwargs['config'] = getattr(channel_instance, 'config', {})
-                    if 'router' in sig.parameters:
-                        kwargs['router'] = self.router
-                    
+                    kwargs = {'router': self.router} if 'router' in sig.parameters else {}
                     tasks.append(asyncio.create_task(channel_instance.start(**kwargs)))
                 else:
-                    console.print(f"⚠️ [yellow]Healthcheck FAILED for channel '{channel_instance.name}': {message}. Skipping...[/yellow]")
-
+                    console.print(f"⚠️ [yellow]Healthcheck FAILED for channel '{channel_instance.name}': {message}.[/yellow]")
             except Exception as e:
-                console.print(f"🚨 [bold red]Kernel Error: Failed to initialize or healthcheck channel {channel_class.__name__}: {e}[/bold red]")
+                console.print(f"🚨 [bold red]Error initializing channel {channel_class.__name__}: {e}[/bold red]")
 
-        if tasks:
-            console.print(f"[cyan]Kernel: Running {len(tasks)} healthy channel task(s). Press Ctrl+C to stop.[/cyan]")
-            await asyncio.gather(*tasks, return_exceptions=True)
+        if len(tasks) > 1: # More than just the IPC server
+            console.print(f"[cyan]Kernel: Running {len(tasks) - 1} channel task(s). Press Ctrl+C to stop.[/cyan]")
+            await asyncio.gather(*tasks)
         else:
-            console.print("[yellow]Kernel Warning: No healthy and enabled channels found to start.[/yellow]")
+            console.print("[yellow]Kernel Warning: No healthy channels found. Running IPC server only.[/yellow]")
+            await asyncio.gather(*tasks)

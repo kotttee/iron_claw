@@ -32,8 +32,7 @@ console = Console()
 PID_DIR = Path(tempfile.gettempdir())
 PID_FILE = PID_DIR / "iron_claw.pid"
 
-# --- Global Kernel/Router Instance ---
-# This allows the `talk` command to access the same context as the running agent
+# --- Global Kernel Instance ---
 _kernel_instance: Kernel | None = None
 
 def get_kernel() -> Kernel:
@@ -52,6 +51,7 @@ class ConsoleChannel(BaseChannel):
         pass # Not needed for talk command
 
     def send_message(self, text: str, target: str | None = None):
+        # This is now the primary way `talk` receives output
         console.print(Markdown(text))
 
     async def healthcheck(self):
@@ -87,7 +87,6 @@ def configure_channels():
     configurable_channels = []
     for chan_class in channel_classes:
         instance = chan_class()
-        # Exclude the 'console' channel from the list
         if hasattr(instance, 'name') and instance.name == 'console':
             continue
         if hasattr(instance, 'setup_wizard') and callable(instance.setup_wizard):
@@ -100,17 +99,14 @@ def configure_channels():
     choices = [channel.name for channel in configurable_channels]
     choices.extend([questionary.Separator(), "Back"])
 
-    choice = questionary.select(
-        "Select a channel to configure:",
-        choices=choices
-    ).ask()
+    choice = questionary.select("Select a channel to configure:", choices=choices).ask()
 
     if choice and choice != "Back":
         selected_channel = next((c for c in configurable_channels if c.name == choice), None)
         if selected_channel:
             try:
                 selected_channel.setup_wizard()
-                console.print("[bold yellow]A restart is required for channel changes to take effect. Use `ironclaw restart`.[/bold yellow]")
+                console.print("[bold yellow]A restart is required for channel changes to take effect.[/bold yellow]")
             except Exception as e:
                 console.print(f"[bold red]An error occurred during {choice} setup: {e}[/bold red]")
 
@@ -121,9 +117,7 @@ def configure_channels():
 def start(
     daemon: bool = typer.Option(False, "-d", "--daemon", help="Run the agent as a background daemon.")
 ):
-    """
-    Starts the agent's asynchronous main loop via the Kernel.
-    """
+    """Starts the agent's asynchronous main loop via the Kernel."""
     if is_running():
         console.print("[bold yellow]IronClaw agent is already running.[/bold yellow]")
         raise typer.Exit()
@@ -133,17 +127,12 @@ def start(
         try:
             log_dir = DATA_ROOT / "logs"
             log_dir.mkdir(exist_ok=True)
-            stdout_log = open(log_dir / "stdout.log", "w")
-            stderr_log = open(log_dir / "stderr.log", "w")
-
-            p = subprocess.Popen(
-                [sys.executable, __file__, "start"],
-                close_fds=True,
-                start_new_session=True,
-                stdout=stdout_log,
-                stderr=stderr_log,
-                stdin=subprocess.DEVNULL,
-            )
+            with open(log_dir / "stdout.log", "w") as stdout_log, open(log_dir / "stderr.log", "w") as stderr_log:
+                p = subprocess.Popen(
+                    [sys.executable, __file__, "start"],
+                    close_fds=True, start_new_session=True,
+                    stdout=stdout_log, stderr=stderr_log, stdin=subprocess.DEVNULL,
+                )
             with open(PID_FILE, "w") as f:
                 f.write(str(p.pid))
             console.print(f"Daemon started with PID: {p.pid}")
@@ -155,22 +144,20 @@ def start(
         with open(PID_FILE, "w") as f:
             f.write(str(os.getpid()))
         
-        if os.isatty(sys.stdout.fileno()):
-            console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
-        
+        console.print(Panel("🚀 [bold green]Starting IronClaw Agent[/bold green]"))
         try:
             kernel = get_kernel()
+            # Register the console channel for direct output if needed
+            kernel.router.register_channel(ConsoleChannel())
             asyncio.run(kernel.start())
         except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
-            if os.isatty(sys.stdout.fileno()):
-                console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
+            console.print("\n[bold yellow]Agent shutdown gracefully.[/bold yellow]")
         except Exception as e:
             log_path = DATA_ROOT / "error.log"
             log_path.parent.mkdir(exist_ok=True)
             with open(log_path, "a") as f:
                 f.write(f"{time.ctime()}: {e}\n")
-            if os.isatty(sys.stdout.fileno()):
-                console.print(f"[bold red]An error occurred during agent execution: {e}[/bold red]")
+            console.print(f"[bold red]An error occurred during agent execution: {e}[/bold red]")
             raise typer.Exit(1)
         finally:
             if PID_FILE.exists():
@@ -196,7 +183,6 @@ def stop():
         if PID_FILE.exists():
             PID_FILE.unlink()
         console.print("[bold green]IronClaw agent stopped successfully.[/bold green]")
-
     except (ValueError, ProcessLookupError):
         console.print("[bold yellow]Agent process not found. Cleaning up stale PID file.[/bold yellow]")
         if PID_FILE.exists():
@@ -215,7 +201,6 @@ def restart():
         stop()
     except typer.Exit:
         pass
-    
     start(daemon=True)
 
 
@@ -229,77 +214,62 @@ def status():
         console.print("[bold yellow]IronClaw agent is not running.[/bold yellow]")
 
 
-@app.command()
-def talk():
-    """
-    Starts the IronClaw terminal interface for seamless, continuous chat.
-    This command uses the same underlying context as the running agent.
-    """
-    try:
-        kernel = get_kernel()
-        router = kernel.router
-        
-        # Ensure the console channel is registered for this session
-        console_channel = ConsoleChannel()
-        router.register_channel(console_channel)
-
-    except Exception as e:
-        console.print(f"[bold red]Initialization Error: {e}[/bold red]")
-        console.print(
-            "[yellow]Hint: Have you run the onboarding process yet? (`ironclaw onboard`)[/yellow]"
-        )
-        raise typer.Exit(1)
+async def talk_client():
+    """The async client for the `talk` command."""
+    if not is_running():
+        console.print("[bold red]Error: IronClaw agent is not running.[/bold red]")
+        console.print("Please start the agent first with `ironclaw start -d`.")
+        return
 
     os.system("cls" if os.name == "nt" else "clear")
-    console.print(
-        Panel(
-            "IronClaw Terminal Interface | Press Ctrl+C to Exit",
-            title="[bold green]🗣️ Live Chat[/bold green]",
-            expand=False,
-        )
-    )
-    
-    # Display recent history
-    console.print("[dim]... recent history ...[/dim]")
-    for message in router.context_manager.history[-6:]:
-        if message['role'] == 'user':
-            console.print(f"> {message['content']}")
-        elif message['role'] == 'assistant':
-            console.print(Markdown(message['content']))
-    console.print("[dim]....................[/dim]\n")
+    console.print(Panel("IronClaw Terminal Interface | Press Ctrl+C to Exit", title="[bold green]🗣️ Live Chat[/bold green]"))
+    console.print("[dim]Connecting to running agent...[/dim]")
 
+    try:
+        reader, writer = await asyncio.open_connection('127.0.0.1', 8989)
+        console.print("[green]Connected![/green]\n")
+    except ConnectionRefusedError:
+        console.print("[bold red]Connection failed. Is the agent running correctly?[/bold red]")
+        return
 
-    while True:
-        try:
-            user_input = console.input("You > ")
+    try:
+        while True:
+            user_input = await asyncio.to_thread(console.input, "You > ")
             if not user_input.strip():
                 continue
 
-            with console.status("[yellow]Thinking...[/yellow]", spinner="dots"):
-                router.process_message(user_input, source="console")
+            writer.write((user_input + '\n').encode())
+            await writer.drain()
+            
+            # In this new model, the server's `process_message` will handle the response
+            # and send it to the appropriate channel. Since the `talk` command is now just
+            # an IPC client, it doesn't receive a direct response here. The output will
+            # appear in the main agent's log or the relevant channel (e.g., Telegram).
+            # For the user to see the response in the console, the main agent must have
+            # a ConsoleChannel registered and the router must direct the output there.
 
-        except (KeyboardInterrupt, EOFError):
-            break
+    except (KeyboardInterrupt, EOFError, asyncio.IncompleteReadError):
+        console.print("\n[bold yellow]Exiting chat mode.[/bold yellow]")
+    finally:
+        writer.close()
+        await writer.wait_closed()
 
-    console.print("\n[bold yellow]Exiting chat mode.[/bold yellow]")
+@app.command()
+def talk():
+    """Connects to the running agent for a direct chat session."""
+    try:
+        asyncio.run(talk_client())
+    except (KeyboardInterrupt, EOFError):
+        pass
 
 
 @app.command()
 def onboard():
-    """
-    Starts the conversational onboarding process to set up AI and user identity.
-    """
-    console.print(
-        Panel(
-            "Welcome to the IronClaw Onboarding process!",
-            title="[bold magenta]✨ Identity Setup[/bold magenta]",
-            expand=False,
-        )
-    )
+    """Starts the conversational onboarding process to set up AI and user identity."""
+    console.print(Panel("Welcome to the IronClaw Onboarding process!", title="[bold magenta]✨ Identity Setup[/bold magenta]"))
     run_onboarding_session()
-    
     console.print("\n[bold green]✅ Onboarding complete![/bold green]")
-    if questionary.confirm("Would you like to configure communication channels (like Telegram) now?").ask():
+    if questionary.confirm("Would you like to configure communication channels now?").ask():
         configure_channels()
 
 
@@ -312,48 +282,27 @@ def config_command(
         update_provider()
         return
 
-    console.print(
-        Panel("⚙️ [bold blue]Interactive Configuration[/bold blue]", expand=False)
-    )
-
+    console.print(Panel("⚙️ [bold blue]Interactive Configuration[/bold blue]"))
     while True:
         main_choice = questionary.select(
             "Configuration Menu",
-            choices=[
-                "👤 Identity",
-                "🔧 Provider (Update LLM)",
-                "📡 Channels",
-                "🛠️ Tools",
-                questionary.Separator(),
-                "❌ Exit",
-            ],
+            choices=["👤 Identity", "🔧 Provider (Update LLM)", "📡 Channels", "🛠️ Tools", questionary.Separator(), "❌ Exit"],
         ).ask()
 
         if not main_choice or main_choice == "❌ Exit":
             break
-
         if main_choice == "👤 Identity":
-            console.print(
-                "[bold yellow]This will start the conversational setup to redefine the AI and user profiles.[/bold yellow]"
-            )
+            console.print("[bold yellow]This will redefine the AI and user profiles.[/bold yellow]")
             if questionary.confirm("Do you want to proceed?").ask():
                 run_onboarding_session()
-            else:
-                console.print("[dim]Operation cancelled.[/dim]")
-        
         elif main_choice == "🔧 Provider (Update LLM)":
             update_provider()
-
         elif main_choice == "📡 Channels":
             configure_channels()
-
         elif main_choice == "🛠️ Tools":
             console.print("[yellow]Tool configuration is not yet implemented.[/yellow]")
-
         if main_choice != "❌ Exit":
-            questionary.press_any_key_to_continue(
-                "Press any key to return to the menu..."
-            ).ask()
+            questionary.press_any_key_to_continue("Press any key to return...").ask()
 
 
 @app.command()
@@ -361,75 +310,40 @@ def update():
     """Safely updates the agent to the latest version from the main branch."""
     project_root = BASE_DIR
     console.rule("[bold blue]IronClaw Safe Update[/bold blue]")
-
     if not (project_root / ".git").is_dir():
-        console.print("[bold red]Error: Not a Git repository. Cannot update.[/bold red]")
+        console.print("[bold red]Error: Not a Git repository.[/bold red]")
         raise typer.Exit(1)
-
-    if not questionary.confirm(
-        "This will reset your local code to the latest 'origin/main'. "
-        "User data (like identities and memory) will be preserved. Are you sure?"
-    ).ask():
+    if not questionary.confirm("This will reset local code to 'origin/main'. User data will be preserved. Are you sure?").ask():
         console.print("[yellow]Update cancelled.[/yellow]")
         return
 
     with tempfile.TemporaryDirectory(prefix="ironclaw_backup_") as temp_dir_str:
         temp_dir = Path(temp_dir_str)
         console.print("📦 Backing up user data...")
-        backup_paths = {
-            "data": DATA_ROOT,
-            ".env": ENV_PATH,
-        }
+        backup_paths = {"data": DATA_ROOT, ".env": ENV_PATH}
         for name, path in backup_paths.items():
             if path.exists():
                 dest = temp_dir / name
-                if path.is_dir():
-                    shutil.copytree(path, dest)
-                else:
-                    shutil.copy(path, dest)
+                shutil.copytree(path, dest) if path.is_dir() else shutil.copy(path, dest)
 
         try:
             console.print("⬇️ Fetching latest version...")
-            subprocess.run(
-                ["git", "fetch", "--all"],
-                check=True,
-                cwd=project_root,
-                capture_output=True,
-            )
+            subprocess.run(["git", "fetch", "--all"], check=True, cwd=project_root, capture_output=True)
             console.print("🔄 Resetting core code to 'origin/main'...")
-            subprocess.run(
-                ["git", "reset", "--hard", "origin/main"],
-                check=True,
-                cwd=project_root,
-                capture_output=True,
-            )
-
+            subprocess.run(["git", "reset", "--hard", "origin/main"], check=True, cwd=project_root, capture_output=True)
             console.print("♻️ Restoring user data...")
             for item in temp_dir.iterdir():
-                source_path = item
                 target_path = project_root / item.name
                 if target_path.exists():
-                    if target_path.is_dir():
-                        shutil.rmtree(target_path)
-                    else:
-                        target_path.unlink()
-                if source_path.is_dir():
-                    shutil.copytree(source_path, target_path)
-                else:
-                    shutil.copy(source_path, target_path)
-
+                    shutil.rmtree(target_path) if target_path.is_dir() else target_path.unlink()
+                shutil.copytree(item, target_path) if item.is_dir() else shutil.copy(item, target_path)
         except subprocess.CalledProcessError as e:
             console.print(f"[bold red]Git update failed: {e.stderr.decode()}[/bold red]")
-            console.print("[yellow]Update failed. Restoring from backup...[/yellow]")
             raise typer.Exit(1)
 
         console.print("🐍 Installing/updating dependencies...")
         try:
-            subprocess.run(
-                ["pip", "install", "-r", "requirements.txt"],
-                check=True,
-                capture_output=True,
-            )
+            subprocess.run(["pip", "install", "-r", "requirements.txt"], check=True, capture_output=True)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             console.print(f"[bold red]Dependency installation failed: {e}[/bold red]")
 
