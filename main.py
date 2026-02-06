@@ -55,20 +55,20 @@ def configure_channels():
     """Dynamically discovers and configures communication channels."""
     console.print(Panel("Channel Configuration", title="[bold cyan]📡 Channels[/bold cyan]"))
     
-    # Discover available channel plugins
     all_plugins = get_all_plugins()
     channel_classes = all_plugins.get("channels", [])
     
-    # Filter for channels that have a setup_wizard
     configurable_channels = []
     for chan_class in channel_classes:
-        # Instantiate to check for the method
         instance = chan_class()
+        # Exclude the 'console' channel from the list
+        if hasattr(instance, 'name') and instance.name == 'console':
+            continue
         if hasattr(instance, 'setup_wizard') and callable(instance.setup_wizard):
             configurable_channels.append(instance)
 
     if not configurable_channels:
-        console.print("[yellow]No configurable channels found.[/yellow]")
+        console.print("[yellow]No configurable external channels found.[/yellow]")
         return
 
     choices = [channel.name for channel in configurable_channels]

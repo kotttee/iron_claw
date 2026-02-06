@@ -1,74 +1,60 @@
-import asyncio
+import os
 from typing import Any, Dict, TYPE_CHECKING
 
 from rich.console import Console
-from rich.prompt import Prompt
+from rich.markdown import Markdown
+from rich.panel import Panel
 
+from src.core.ai.identity import IdentityManager
 from src.interfaces.channel import BaseChannel
-from src.core.interfaces import ConfigurablePlugin
 
 if TYPE_CHECKING:
     from src.core.ai.router import Router
 
+console = Console()
 
-class ConsoleChannel(BaseChannel, ConfigurablePlugin):
+class ConsoleChannel(BaseChannel):
     """
-    A channel for interacting with the AI agent via the command line.
+    The default channel for interacting with the agent via the command line.
     """
 
     def __init__(self):
         super().__init__(name="console", category="channel")
-
-    @property
-    def plugin_id(self) -> str:
-        return "console"
-
-    def setup_wizard(self) -> None:
-        """
-        The console channel prompts for an agent personality.
-        """
-        console = Console()
-        console.print("[bold green]Console channel enabled.[/bold green]")
-        personality = Prompt.ask(
-            "Set Agent Personality for this channel",
-            default="A helpful assistant.",
-        )
-        self.config["personality"] = personality
-        self.save_config()
-
-    def is_enabled(self) -> bool:
-        """Console is always enabled."""
-        return True
+        self.identity_manager = IdentityManager()
 
     async def start(self, config: Dict[str, Any], router: "Router"):
-        """
-        Starts the console interaction loop.
-        """
-        console = Console()
-        console.print(f"[bold blue]Starting console channel...[/bold blue]")
-        console.print(f"Agent Personality: {self.config.get('personality', 'Not set')}")
+        """Starts the interactive console loop."""
+        os.system("cls" if os.name == "nt" else "clear")
+        
+        ai_name = self.identity_manager.get_ai_name()
+        user_name = self.identity_manager.get_user_name()
+
+        console.print(
+            Panel(
+                f"Live Chat with {ai_name} | Press Ctrl+C to Exit",
+                title="[bold green]🗣️ IronClaw Terminal[/bold green]",
+                expand=False,
+            )
+        )
+        console.print(f"[dim]You are {user_name}.[/dim]\n")
 
         while True:
             try:
-                user_input = await asyncio.to_thread(
-                    Prompt.ask, "[bold yellow]You[/bold yellow]"
-                )
-                if user_input.lower() in ["exit", "quit"]:
-                    break
-                router.process_message(user_input, "console")
+                user_input = console.input(f"{user_name} > ")
+                if not user_input.strip():
+                    continue
+
+                with console.status("[yellow]Thinking...[/yellow]", spinner="dots"):
+                    # The router now handles the full processing flow
+                    router.process_message(user_input, source="console")
+
             except (KeyboardInterrupt, EOFError):
                 break
         
-        console.print("\n[bold red]Exiting console channel.[/bold red]")
+        console.print("\n[bold yellow]Exiting chat mode.[/bold yellow]")
 
-    async def send_reply(self, user_id: str, text: str):
-        """Sends a reply back to the console."""
-        # user_id is ignored for a single-user console channel
-        console = Console()
-        console.print(f"[bold red]Agent[/bold red]: {text}")
-
-    def setup(self, wizard_context: Dict[str, Any]) -> Dict[str, Any]:
-        # This method is required by BaseChannel, but we use setup_wizard.
-        # We can leave it empty or raise a NotImplementedError if it's not supposed to be called.
-        # For now, we'll just return the config.
-        return self.config
+    def send_reply(self, text: str, target: str):
+        """Prints the AI's reply to the console."""
+        ai_name = self.identity_manager.get_ai_name()
+        console.print(f"[bold cyan]{ai_name}:[/bold cyan]")
+        console.print(Markdown(text))

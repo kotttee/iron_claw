@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from pathlib import Path
+from functools import partial
 from typing import Any, Dict, TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, F, types
@@ -77,10 +77,11 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
         self.bot = Bot(token=token)
         dp = Dispatcher()
 
+        # Use functools.partial to correctly pass the router argument
         dp.message(CommandStart())(self._handle_start)
-        dp.message(F.text)(lambda msg: self._handle_text(msg, router))
-        dp.message(F.photo)(lambda msg: self._handle_photo(msg, router))
-        dp.message(F.document)(lambda msg: self._handle_document(msg, router))
+        dp.message(F.text)(partial(self._handle_text, router=router))
+        dp.message(F.photo)(partial(self._handle_photo, router=router))
+        dp.message(F.document)(partial(self._handle_document, router=router))
 
         logger.info(f"Starting Telegram bot for admin user {self.admin_id}.")
         try:
