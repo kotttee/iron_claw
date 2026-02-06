@@ -116,7 +116,7 @@ class Router:
         then the default preferred channel.
         """
         target_channel_name = source or self.last_channel_name
-        
+
         if target_channel_name:
             channel_instance = next((c for c in self.active_channels if c.name == target_channel_name), None)
             if channel_instance:
@@ -139,7 +139,7 @@ class Router:
                 admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
                 if admin_id:
                     return channel, admin_id
-        
+
         # Default to console if no other preference matches
         return next((c for c in self.active_channels if c.name == 'console'), None), None
 
@@ -150,32 +150,32 @@ class Router:
         preferred channel. Supports tool execution.
         """
         console.print(f"Handling scheduled event: {event_instruction}")
-        
+
         system_prompt = self.system_prompt + "\n\nYou are executing a scheduled task. Follow the instructions and use tools if necessary."
-        
+
         messages = [{"role": "user", "content": f"Scheduled Task: {event_instruction}"}]
-        
+
         # Tool execution loop for scheduled events
         max_iterations = 5
         response_text = ""
-        
+
         for i in range(max_iterations):
             response_text = self.provider.chat(
                 model=self.model_name,
                 messages=messages,
                 system_prompt=system_prompt
             )
-            
+
             messages.append({"role": "assistant", "content": response_text})
-            
+
             tool_call = self._parse_tool_call(response_text)
             if tool_call:
                 tool_name = tool_call.get("tool")
                 tool_args = tool_call.get("args", {})
-                
+
                 console.print(f"Router (Scheduled): Executing tool '{tool_name}'")
                 tool_result = self._execute_tool(tool_name, tool_args)
-                
+
                 messages.append({"role": "user", "content": f"[TOOL RESULT for {tool_name}]: {tool_result}"})
                 continue
             else:
@@ -199,7 +199,7 @@ class Router:
             return
 
         console.print(f"Router: Sending message to {channel_instance.name} (target: {target or 'default'})")
-        
+
         try:
             channel_instance.send_message(text, target)
             console.print(f"Message sent successfully via {channel_instance.name}.")
