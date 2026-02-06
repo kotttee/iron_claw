@@ -209,11 +209,10 @@ def config_command(
         main_choice = questionary.select(
             "Configuration Menu",
             choices=[
-                "👤 Identity (Re-run Onboarding)",
+                "👤 Identity",
                 "🔧 Provider (Update LLM)",
                 "📡 Channels",
                 "🛠️ Tools",
-                "🧠 Core Settings",
                 questionary.Separator(),
                 "❌ Exit",
             ],
@@ -222,7 +221,7 @@ def config_command(
         if not main_choice or main_choice == "❌ Exit":
             break
 
-        if main_choice == "👤 Identity (Re-run Onboarding)":
+        if main_choice == "👤 Identity":
             console.print(
                 "[bold yellow]This will start the conversational setup to redefine the AI and user profiles.[/bold yellow]"
             )
@@ -239,10 +238,6 @@ def config_command(
 
         elif main_choice == "🛠️ Tools":
             console.print("[yellow]Tool configuration is not yet implemented.[/yellow]")
-
-        elif main_choice == "🧠 Core Settings":
-            settings_manager = SettingsManager()
-            settings_manager.configure_preferences()
 
         if main_choice != "❌ Exit":
             questionary.press_any_key_to_continue(

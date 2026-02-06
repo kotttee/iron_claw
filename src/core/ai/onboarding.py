@@ -41,6 +41,11 @@ def run_onboarding_session():
     kernel = Kernel()
     kernel.router.context_manager.add_message("system", SYSTEM_PROMPT)
 
+    # AI starts the conversation
+    initial_response = "Hello! I'm the IronClaw Architect, ready to get set up. To start, let's define my persona. What would you like to name me?"
+    console.print(Markdown(initial_response))
+    kernel.router.context_manager.add_message("assistant", initial_response)
+
     while True:
         try:
             user_input = console.input("You > ")
@@ -48,7 +53,7 @@ def run_onboarding_session():
                 break
 
             kernel.router.context_manager.add_message("user", user_input)
-            response = kernel.router.provider.chat(kernel.router.context_manager.get_messages())
+            response = kernel.router.provider.chat(kernel.router.context_manager.messages)
             kernel.router.context_manager.add_message("assistant", response)
 
             if "###SAVE_IDENTITY###" in response:

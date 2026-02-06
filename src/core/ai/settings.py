@@ -6,7 +6,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from src.core.paths import CONFIG_PATH, PROVIDERS_JSON_PATH
+from src.core.paths import CONFIG_PATH
+from src.core.providers import provider_factory
 
 
 console = Console()
@@ -16,7 +17,8 @@ class SettingsManager:
 
     def __init__(self):
         self.config = self._load_config()
-        self.providers_config = self._load_providers_config()
+        # No longer need to load providers_config directly, will use the factory
+        self.provider_factory = provider_factory
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads the main config.json file."""
@@ -33,25 +35,14 @@ class SettingsManager:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(json.dumps(self.config, indent=4), encoding="utf-8")
 
-    def _load_providers_config(self) -> Dict[str, Any]:
-        """Loads the provider definitions from providers.json."""
-        if not PROVIDERS_JSON_PATH.exists():
-            console.print(f"[bold red]Error: Provider definition file not found at {PROVIDERS_JSON_PATH}[/bold red]")
-            return {}
-        try:
-            return json.loads(PROVIDERS_JSON_PATH.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            console.print(f"[bold red]Error: Could not parse {PROVIDERS_JSON_PATH}.[/bold red]")
-            return {}
-
     def configure_provider(self) -> bool:
         """Runs the interactive UI to configure the LLM provider."""
         console.rule("[bold blue]Provider Configuration[/bold blue]")
-        if not self.providers_config:
+        provider_names = self.provider_factory.get_provider_names()
+        if not provider_names:
             console.print("[bold red]Cannot configure provider. `providers.json` is missing or invalid.[/bold red]")
             return False
 
-        provider_names = list(self.providers_config.keys())
         provider_choices = {str(i + 1): name for i, name in enumerate(provider_names)}
 
         console.print(Panel("Select your LLM Provider.", title="[bold cyan]LLM Setup[/bold cyan]", border_style="cyan"))
@@ -59,10 +50,33 @@ class SettingsManager:
         choice = Prompt.ask(f"Choose an option\n\n{choice_desc}", choices=list(provider_choices.keys()))
 
         provider_name = provider_choices[choice]
-        provider_details = self.providers_config[provider_name]
+        provider_details = self.provider_factory.get_provider_config(provider_name)
         api_key_name = provider_details.get("api_key_name", "API_KEY")
         api_key = Prompt.ask(f"Enter your {api_key_name}")
-        model = Prompt.ask("Enter the model name you want to use (e.g., gpt-4-turbo)")
+
+        try:
+            provider = self.provider_factory.create_provider(provider_name, api_key)
+            models = provider.list_models()
+        except Exception as e:
+            console.print(f"[bold red]Error fetching models: {e}[/bold red]")
+            models = []
+
+        model = None
+        if models:
+            model_choices = {str(i + 1): m for i, m in enumerate(models)}
+            model_choices[str(len(models) + 1)] = "Enter manually"
+            
+            console.print("\nSelect a model:")
+            model_choice_desc = "\n".join([f"[{i}] {m}" for i, m in model_choices.items()])
+            model_choice = Prompt.ask(model_choice_desc, choices=list(model_choices.keys()))
+
+            if model_choices[model_choice] == "Enter manually":
+                model = Prompt.ask("Enter the model name")
+            else:
+                model = model_choices[model_choice]
+        else:
+            console.print("\nCould not fetch models, or no models available.")
+            model = Prompt.ask("Enter the model name you want to use (e.g., gpt-4-turbo)")
 
         self.config["llm"] = {
             "provider_name": provider_name,
