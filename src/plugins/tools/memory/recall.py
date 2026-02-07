@@ -34,14 +34,12 @@ class SearchHistoryTool(BaseTool):
 
         for attempt in range(max_retries):
             try:
-                # Attempt to read and parse the file
                 with HISTORY_PATH.open("r", encoding="utf-8") as f:
                     content = f.read()
                     if not content:
                         return "History is empty."
                     history_data = json.loads(content)
                 
-                # If parsing is successful, proceed with the search
                 if not isinstance(history_data, list):
                     return "Error: History data is not in the expected list format."
 
@@ -58,19 +56,25 @@ class SearchHistoryTool(BaseTool):
                 if not found_messages:
                     return f"No occurrences of '{query}' found in history."
                 
-                # If search is complete, return the result and exit the function
                 return "Found the following occurrences in history:\n" + "\n".join(found_messages)
 
             except json.JSONDecodeError:
-                # If JSON is invalid, it might be a race condition. Wait and retry.
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay)
                 else:
-                    # If all retries fail, return an error
                     return "Error: Could not decode history file after multiple attempts. It might be corrupt or in use."
             except Exception as e:
-                # For any other exception, fail immediately
                 return f"An unexpected error occurred while reading history: {e}"
         
-        # This line should not be reachable given the logic above.
         return "An unknown error occurred in the search tool."
+
+    def format_output(self, result: str) -> str:
+        """Formats the history search result for user-facing output."""
+        if result.startswith("Error") or "does not exist" in result or "is empty" in result:
+            return f"⚠️ {result}"
+        
+        if result.startswith("No occurrences"):
+            return f"🤷 {result}"
+            
+        num_found = len(result.split('\n')) - 1
+        return f"🔎 Found {num_found} relevant messages in the conversation history."

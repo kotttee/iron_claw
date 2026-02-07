@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 from src.interfaces.tool import BaseTool
 
 if TYPE_CHECKING:
-    pass
+    from src.core.ai.schedule_manager import SchedulerManager
+
 
 class SetReminderArgs(BaseModel):
     iso_timestamp: str = Field(..., description="The reminder time in strict ISO 8601 format (e.g., '2024-08-15T10:30:00').")
@@ -40,7 +41,6 @@ class SetReminderTool(BaseTool):
         try:
             run_date = datetime.datetime.fromisoformat(iso_timestamp)
             
-            # Ensure the time is in the future
             if run_date <= datetime.datetime.now():
                 return "Error: Reminder time must be in the future."
 
@@ -51,3 +51,11 @@ class SetReminderTool(BaseTool):
             return "Error: Invalid ISO 8601 timestamp format. Please use the format 'YYYY-MM-DDTHH:MM:SS'."
         except Exception as e:
             return f"An unexpected error occurred: {e}"
+
+    def format_output(self, result: str) -> str:
+        """Formats the raw reminder result for a user-friendly output."""
+        if result.startswith("Error"):
+            return f"⚠️ {result}"
+        
+        job_id = result.split(":")[-1].strip()
+        return f"⏰ Reminder set! I will notify you at the specified time. (ID: `{job_id}`)"

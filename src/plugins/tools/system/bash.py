@@ -14,7 +14,6 @@ class ExecuteBashTool(BaseTool):
     """
     @property
     def name(self) -> str:
-        # The name now reflects its location, providing a namespace.
         return "system/bash"
 
     @property
@@ -54,3 +53,11 @@ class ExecuteBashTool(BaseTool):
             return f"Error: Command '{command}' timed out after 15 seconds."
         except Exception as e:
             return f"An unexpected error occurred while executing '{command}': {e}"
+
+    def format_output(self, result: str) -> str:
+        """Formats the bash command result for user-facing output."""
+        if result.startswith("Error"):
+            return f"⚠️ {result}"
+        
+        output_length = len(result)
+        return f"⚙️ Command executed. Total output length: {output_length} characters."

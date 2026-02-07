@@ -14,7 +14,7 @@ class UpdateIdentityTool(BaseTool):
     """
     @property
     def name(self) -> str:
-        return "identity/update"
+        return "identity/update_identity"
 
     @property
     def description(self) -> str:
@@ -30,3 +30,9 @@ class UpdateIdentityTool(BaseTool):
         """
         manager = IdentityManager()
         return manager.run(ai_persona, user_profile, preferences)
+
+    def format_output(self, result: str) -> str:
+        """Formats the identity update result for user-facing output."""
+        if "Error" in result:
+            return f"⚠️ {result}"
+        return "👤 AI identity and preferences have been successfully updated."

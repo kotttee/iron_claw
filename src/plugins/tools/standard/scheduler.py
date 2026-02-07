@@ -30,7 +30,6 @@ class ScheduleTaskTool(BaseTool):
     """
     def __init__(self, scheduler: "SchedulerManager"):
         super().__init__()
-        # The scheduler is now managed by the ScheduleManager, which is initialized alongside the Router.
         self.__dict__["scheduler"] = scheduler
 
     @property
@@ -58,3 +57,10 @@ class ScheduleTaskTool(BaseTool):
             return scheduler.add_cron_job(cron_expression, task_description)
 
         return "Error: You must provide either a valid iso_timestamp or a cron_expression."
+
+    def format_output(self, result: str) -> str:
+        """Formats the raw scheduler result for a user-friendly output."""
+        if result.startswith("Error"):
+            return f"⚠️ {result}"
+        job_id = result.split(":")[-1].strip()
+        return f"🗓️ Task scheduled successfully. ID: `{job_id}`"

@@ -1,4 +1,4 @@
-from dotenv import load_dotenv, get_key
+from dotenv import load_dotenv
 import os
 import json
 import inspect
@@ -28,7 +28,6 @@ class Router:
         self.scheduler_manager = SchedulerManager()
         self.provider, self.model_name = self._initialize_provider()
         self.plugin_manager = get_all_plugins(router=self)
-        self.system_prompt = self._build_system_prompt()
         self.active_channels = []
         self.last_channel_name = None
 
@@ -64,9 +63,12 @@ class Router:
         except (json.JSONDecodeError, FileNotFoundError) as e:
             raise ValueError(f"Failed to load or parse configuration: {e}. Please run the setup.")
 
-    def _build_system_prompt(self) -> str:
+    @property
+    def system_prompt(self) -> str:
         """
-        Constructs the full system prompt, including identity and available tools.
+        Constructs the full system prompt dynamically, including identity and available tools.
+        This is a property to ensure the prompt is rebuilt on every access,
+        capturing any changes to identity files.
         """
         base_prompt = IdentityManager.get_identity_prompt()
         
@@ -77,34 +79,36 @@ class Router:
             for tool_plugin in enabled_tools:
                 try:
                     executable = None
-                    if hasattr(tool_plugin, 'execute') and callable(tool_plugin.execute):
+                    try:
                         executable = tool_plugin.execute
-                    elif hasattr(tool_plugin, 'run') and callable(tool_plugin.run):
+                    except AttributeError:
                         executable = tool_plugin.run
 
-                    if executable:
-                        docstring = inspect.getdoc(executable) or "No description available."
-                        sig = inspect.signature(executable)
-                        
-                        arg_details = []
-                        for param in sig.parameters.values():
-                            if param.name == 'self': continue
-                            detail = f"{param.name}"
-                            if param.annotation != inspect.Parameter.empty:
-                                detail += f": {param.annotation.__name__}"
-                            if param.default != inspect.Parameter.empty:
-                                detail += f" (default: {param.default})"
-                            arg_details.append(detail)
-                        
-                        args_str = ", ".join(arg_details)
-                        tool_definitions.append(f"- {tool_plugin.name}({args_str}): {docstring.strip()}")
+                    docstring = inspect.getdoc(executable) or "No description available."
+                    sig = inspect.signature(executable)
+                    
+                    arg_details = []
+                    for param in sig.parameters.values():
+                        if param.name == 'self': continue
+                        detail = f"{param.name}"
+                        if param.annotation != inspect.Parameter.empty:
+                            detail += f": {param.annotation.__name__}"
+                        if param.default != inspect.Parameter.empty:
+                            detail += f" (default: {param.default})"
+                        arg_details.append(detail)
+                    
+                    args_str = ", ".join(arg_details)
+                    tool_definitions.append(f"- {tool_plugin.name}({args_str}): {docstring.strip()}")
 
                 except Exception as e:
                     console.print(f"[yellow]Could not generate definition for tool {tool_plugin.name}: {e}[/yellow]")
 
         if tool_definitions:
             tools_prompt = "\n\n=== AVAILABLE TOOLS ===\n"
-            tools_prompt += "You have access to the following Python functions. To use them, you MUST respond with a JSON object like this: {\"tool\": \"<tool_name>\", \"args\": {\"<arg_name>\": \"<value>\"}}. The 'tool' key must contain the name of the tool to use, and the 'args' key must contain a dictionary of arguments for the tool.\n\n"
+            tools_prompt += "You have access to the following tools. If you need to use a tool, your response MUST be a JSON object with two keys: 'tool' and 'args'. The 'tool' key specifies the tool name, and the 'args' key provides the arguments as a dictionary. Your response must contain ONLY the JSON object and nothing else.\n"
+            tools_prompt += "Example of a valid tool call:\n"
+            tools_prompt += "{\"tool\": \"create_file\", \"args\": {\"filename\": \"test.txt\", \"content\": \"Hello World\"}}\n\n"
+            tools_prompt += "Here are the tools available to you:\n"
             tools_prompt += "\n".join(tool_definitions)
             return base_prompt + tools_prompt
         
@@ -127,13 +131,13 @@ class Router:
         if self.last_channel_name:
             channel = next((c for c in self.active_channels if c.name == self.last_channel_name), None)
             if channel:
-                target = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID") if channel.name == 'telegram_bot' else None
+                target = os.environ.get("TELEGRAM_ADMIN_ID") if channel.name == 'telegram_bot' else None
                 return channel, target
 
         # 3. Fallback to a preferred network channel
         for channel in self.active_channels:
             if channel.name == 'telegram_bot' and channel.is_enabled():
-                admin_id = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID")
+                admin_id =  os.environ.get("TELEGRAM_ADMIN_ID")
                 if admin_id:
                     return channel, admin_id
         
@@ -145,38 +149,49 @@ class Router:
     def handle_scheduled_event(self, event_instruction: str):
         """
         Handles a scheduled event by generating content and sending it to the
-        preferred channel. Supports tool execution.
+        preferred channel. Supports tool execution and maintains context.
         """
-        console.print(f"Handling scheduled event: {event_instruction}")
+        console.print(f"Router: Handling scheduled event: {event_instruction}")
 
-        system_prompt = self.system_prompt + "\n\nYou are executing a scheduled task. Follow the instructions and use tools if necessary."
-
-        messages = [{"role": "user", "content": f"Scheduled Task: {event_instruction}"}]
+        self.context_manager.add_message("user", f"Scheduled Task: {event_instruction}")
 
         max_iterations = 5
-        response_text = ""
+        final_response = "Max tool execution iterations reached for scheduled event."
 
         for i in range(max_iterations):
-            response_text = self.provider.chat(
+            current_messages = self.context_manager.messages
+            
+            system_prompt = self.system_prompt + "\n\nYou are executing a scheduled task. Follow the instructions and use tools if necessary."
+
+            assistant_response = self.provider.chat(
                 model=self.model_name,
-                messages=messages,
+                messages=current_messages,
                 system_prompt=system_prompt
             )
-            messages.append({"role": "assistant", "content": response_text})
-            tool_call = self._parse_tool_call(response_text)
+
+            self.context_manager.add_message("assistant", assistant_response)
+
+            tool_call = self._parse_tool_call(assistant_response)
             if tool_call:
                 tool_name = tool_call.get("tool")
                 tool_args = tool_call.get("args", {})
-                console.print(f"Router (Scheduled): Executing tool '{tool_name}'")
-                tool_result = self._execute_tool(tool_name, tool_args)
-                messages.append({"role": "user", "content": f"[TOOL RESULT for {tool_name}]: {tool_result}"})
+                
+                tool_message = f"🤖 Calling tool: `{tool_name}` with arguments: `{tool_args}`"
+                self._send_to_channel(tool_message)
+                
+                console.print(f"Router (Scheduled): Executing tool '{tool_name}' with args {tool_args}")
+                raw_result, formatted_result = self._execute_tool(tool_name, tool_args)
+                console.print(f"Router (Scheduled): Tool result: {raw_result}")
+                
+                self.context_manager.add_message("user", f"[TOOL RESULT for {tool_name}]: {raw_result}")
+                self._send_to_channel(formatted_result)
                 continue
             else:
+                final_response = assistant_response
                 break
 
-        self.context_manager.add_message("user", f"Scheduled Task: {event_instruction}")
-        self.context_manager.add_message("assistant", response_text)
-        self._send_to_channel(response_text)
+        self._send_to_channel(final_response)
+
 
     def _send_to_channel(self, text: str, source: str | None = None):
         """
@@ -209,10 +224,11 @@ class Router:
         max_iterations = 5
         final_response = "Max tool execution iterations reached."
         for i in range(max_iterations):
-            full_history = self.context_manager.history
+            current_messages = self.context_manager.messages
+            
             assistant_response = self.provider.chat(
                 model=self.model_name,
-                messages=full_history,
+                messages=current_messages,
                 system_prompt=self.system_prompt
             )
 
@@ -223,11 +239,15 @@ class Router:
                 tool_name = tool_call.get("tool")
                 tool_args = tool_call.get("args", {})
                 
+                tool_message = f"🤖 Calling tool: `{tool_name}` with arguments: `{tool_args}`"
+                self._send_to_channel(tool_message, source)
+
                 console.print(f"Router: Executing tool '{tool_name}' with args {tool_args}")
-                tool_result = self._execute_tool(tool_name, tool_args)
-                console.print(f"Router: Tool result: {tool_result}")
+                raw_result, formatted_result = self._execute_tool(tool_name, tool_args)
+                console.print(f"Router: Tool result: {raw_result}")
                 
-                self.context_manager.add_message("user", f"[TOOL RESULT for {tool_name}]: {tool_result}")
+                self.context_manager.add_message("user", f"[TOOL RESULT for {tool_name}]: {raw_result}")
+                self._send_to_channel(formatted_result, source)
                 continue
             else:
                 final_response = assistant_response
@@ -258,22 +278,34 @@ class Router:
             pass
         return None
 
-    def _execute_tool(self, tool_name: str, args: dict) -> str:
+    def _execute_tool(self, tool_name: str, args: dict) -> (str, str):
         """
         Finds and executes the specified tool.
+
+        Returns:
+            A tuple containing:
+            - str: The raw, complete result of the tool execution.
+            - str: A formatted, user-friendly summary of the result.
         """
         enabled_tools = [p for p in self.plugin_manager.get("tools", []) if p.is_enabled()]
         tool = next((t for t in enabled_tools if t.name == tool_name), None)
         
         if not tool:
-            return f"Error: Tool '{tool_name}' not found or not enabled."
+            error_message = f"Error: Tool '{tool_name}' not found or not enabled."
+            return error_message, error_message
 
         try:
-            if hasattr(tool, 'execute') and callable(tool.execute):
-                return str(tool.execute(**args))
-            elif hasattr(tool, 'run') and callable(tool.run):
-                 return str(tool.run(**args))
-            else:
-                return f"Error: Tool '{tool_name}' is not executable."
+            # 1. Execute the tool to get the raw result
+            raw_result = tool.execute(**args)
+
+            # 2. Format the output for the user
+            try:
+                formatted_result = tool.format_output(raw_result)
+            except:
+                formatted_result = "tool was called but result cant be formatted."
+
+            return str(raw_result), str(formatted_result)
+
         except Exception as e:
-            return f"Error executing tool '{tool_name}': {e}"
+            error_message = f"Error executing tool '{tool_name}': {e}"
+            return error_message, error_message

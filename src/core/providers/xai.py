@@ -1,7 +1,8 @@
 from typing import List, Dict, Any
 from .base import BaseProvider
 import xai_sdk
-from xai_sdk.chat import user, system
+from xai_sdk.chat import user, system, assistant
+
 
 class XAIProvider(BaseProvider):
     def __init__(self, api_key: str, base_url: str = None):
@@ -29,12 +30,15 @@ class XAIProvider(BaseProvider):
         for message in messages:
             if message["role"] == "user":
                 conversation.append(user(message["content"]))
-            # Note: The current xAI SDK chat flow might not explicitly handle 'assistant' messages
-            # in the same way as OpenAI. We will only push user messages for now.
+            elif message["role"] == "assistant":
+                conversation.append(assistant(message["content"]))
+            elif message["role"] == "system":
+                conversation.append(assistant(message["system"]))
 
         response = self.client.chat.create(
             model=model,
-            messages=conversation
+            messages=conversation,
+            store_messages=False
         ).sample()
 
         return response.content
