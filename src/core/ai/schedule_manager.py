@@ -1,6 +1,6 @@
 import asyncio
 import datetime
-from pathlib import Path
+import json
 from typing import Any, Dict, TYPE_CHECKING
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -14,16 +14,26 @@ if TYPE_CHECKING:
 from src.core.paths import DATA_ROOT
 DATABASE_URL = f"sqlite:///{DATA_ROOT.resolve()}/scheduler.sqlite"
 
-def execute_scheduled_task(router: "Router", task_description: str):
+def execute_scheduled_task(router: "Router", task_info_json: str):
     """
     Top-level function for APScheduler to execute a scheduled task.
-    This function calls the router's method to handle the event.
+    This function deserializes the task info and routes it appropriately.
     """
     console = Console()
-    console.print(f"[bold yellow]Scheduler:[/bold yellow] Triggering task: '{task_description}'")
-    # The router's handle_scheduled_event is now synchronous and handles its own async operations if needed
     try:
-        router.handle_scheduled_event(task_description)
+        task_info = json.loads(task_info_json)
+        task_type = task_info.get("type", "generic")
+        
+        console.print(f"[bold yellow]Scheduler:[/bold yellow] Triggering task of type '{task_type}'")
+
+        if task_type == "reminder":
+            # Reminders have specific context and are handled by a dedicated async method
+            asyncio.run(router.handle_reminder_event(task_info))
+        else:
+            # Generic tasks are handled by a synchronous method
+            description = task_info.get("description", "No description provided.")
+            router.handle_scheduled_event(description)
+
     except Exception as e:
         console.print(f"[bold red]Error executing scheduled task:[/bold red] {e}")
 
@@ -50,36 +60,39 @@ class SchedulerManager:
         if self.scheduler.running:
             self.scheduler.shutdown()
 
-    def add_date_job(self, run_date: datetime.datetime, task_description: str) -> str:
-        """Adds a one-time job."""
+    def _add_job(self, task_info: Dict[str, Any], trigger_type: str, **trigger_args) -> str:
         if not self.router:
             return "Error: Scheduler is not initialized with a router."
-        try:
-            job_id = f"date_{int(run_date.timestamp())}"
-            self.scheduler.add_job(
-                execute_scheduled_task, "date", run_date=run_date, id=job_id,
-                args=[self.router, task_description]
-            )
-            return f"OK. One-time job set for {run_date.isoformat()}. Job ID: {job_id}"
-        except Exception as e:
-            return f"Error setting date-based job: {e}"
 
-    def add_cron_job(self, cron_expression: str, task_description: str) -> str:
-        """Adds a recurring job."""
-        if not self.router:
-            return "Error: Scheduler is not initialized with a router."
+        task_type = task_info.get("type", "generic")
+        job_id_prefix = f"{task_type}_{int(datetime.datetime.now().timestamp())}"
+        job_id = f"{job_id_prefix}_{hash(json.dumps(task_info)) & 0xffffff}"
+
+        task_info_json = json.dumps(task_info)
+
+        self.scheduler.add_job(
+            execute_scheduled_task, trigger_type, id=job_id, args=[self.router, task_info_json], **trigger_args
+        )
+        return f"OK. Task scheduled. Job ID: {job_id}"
+
+    def add_reminder(self, run_date: datetime.datetime, message: str, context: Dict[str, Any]) -> str:
+        """Adds a one-time reminder job."""
+        task_info = {"type": "reminder", "message": message, "context": context}
+        return self._add_job(task_info, "date", run_date=run_date)
+
+    def add_date_task(self, run_date: datetime.datetime, task_description: str) -> str:
+        """Adds a one-time generic task for a specific date."""
+        task_info = {"type": "generic", "description": task_description}
+        return self._add_job(task_info, "date", run_date=run_date)
+
+    def add_cron_task(self, cron_expression: str, task_description: str) -> str:
+        """Adds a recurring generic task."""
         try:
             trigger = CronTrigger.from_crontab(cron_expression)
-            job_id = f"cron_{hash(cron_expression) & 0xffffff}"
-            self.scheduler.add_job(
-                execute_scheduled_task, trigger, id=job_id,
-                args=[self.router, task_description]
-            )
-            return f"OK. Recurring job set with schedule '{cron_expression}'. Job ID: {job_id}"
+            task_info = {"type": "generic", "description": task_description}
+            return self._add_job(task_info, "cron", trigger=trigger)
         except ValueError as e:
             return f"Error: Invalid Cron expression '{cron_expression}'. Details: {e}"
-        except Exception as e:
-            return f"Error setting cron job: {e}"
 
     def list_jobs(self) -> str:
         """Lists all scheduled jobs."""
@@ -88,7 +101,15 @@ class SchedulerManager:
             return "No scheduled jobs."
         job_list = ["Scheduled Jobs:"]
         for job in jobs:
-            job_list.append(f"- ID: {job.id}, Task: '{job.args[1]}', Trigger: {job.trigger}, Next Run: {job.next_run_time}")
+            try:
+                task_info = json.loads(job.args[1])
+                task_type = task_info.get("type", "generic")
+                description = task_info.get("description") or task_info.get("message", "N/A")
+            except (json.JSONDecodeError, IndexError):
+                task_type = "unknown"
+                description = f"Legacy or malformed task: {job.args[1] if len(job.args) > 1 else 'N/A'}"
+
+            job_list.append(f"- ID: {job.id}, Type: {task_type.capitalize()}, Details: '{description}', Next Run: {job.next_run_time}")
         return "\n".join(job_list)
 
     def delete_job(self, job_id: str) -> str:

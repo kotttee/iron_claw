@@ -1,26 +1,36 @@
 import datetime
-from typing import Type, TYPE_CHECKING
+from typing import Type, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 
+from src.core.ai.schedule_manager import _get_scheduler
 from src.interfaces.tool import BaseTool
-
-if TYPE_CHECKING:
-    from src.core.ai.schedule_manager import SchedulerManager
 
 
 class SetReminderArgs(BaseModel):
-    iso_timestamp: str = Field(..., description="The reminder time in strict ISO 8601 format (e.g., '2024-08-15T10:30:00').")
     message: str = Field(..., description="The reminder message for the user.")
-    plugin_id: str = Field(..., description="The ID of the channel plugin where the user made the request (e.g., 'telegram', 'console').")
-    user_id: str = Field(..., description="The unique identifier for the user within that channel.")
+    reminder_in_minutes: Optional[int] = Field(None, description="The number of minutes from now to set the reminder (for relative times like 'in 10 minutes').")
+    date: Optional[str] = Field(None, description="The date for the reminder in YYYY-MM-DD format (for absolute times like 'tomorrow at 10am').")
+    time: Optional[str] = Field(None, description="The time for the reminder in HH:MM:SS format (used with 'date').")
+    timezone: str = Field("UTC", description="The user's timezone (e.g., 'UTC', 'Europe/London'). Defaults to UTC.")
+
+    @root_validator(skip_on_failure=True)
+    def check_time_fields(cls, values):
+        time_fields = ['reminder_in_minutes', 'date']
+        provided_time_fields = sum(1 for field in time_fields if values.get(field) is not None)
+        if provided_time_fields != 1:
+            raise ValueError("For a reminder, please provide exactly one of 'reminder_in_minutes' or 'date'.")
+        if values.get('time') and not values.get('date'):
+            raise ValueError("'time' can only be used when 'date' is also provided.")
+        return values
+
 
 class SetReminderTool(BaseTool):
-    """A tool to set a reminder for the user."""
-
-    def __init__(self, scheduler: "SchedulerManager"):
-        super().__init__()
-        self.scheduler = scheduler
+    """
+    A tool to set a reminder for the user. This is for one-time reminders.
+    The user's request may be in the future. Before calling this function, get the current time to make sure you are setting the reminder correctly.
+    For recurring tasks, use the 'standard/schedule_task' tool.
+    """
 
     @property
     def name(self) -> str:
@@ -28,27 +38,40 @@ class SetReminderTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Sets a reminder for the user. The LLM must convert natural language time into a precise ISO 8601 timestamp."
+        return "Sets a one-time reminder for the user. Use relative time ('in 10 minutes') or absolute time ('tomorrow at 10am')."
 
     @property
     def args_schema(self) -> Type[BaseModel]:
         return SetReminderArgs
 
-    def execute(self, iso_timestamp: str, message: str, plugin_id: str, user_id: str) -> str:
+    def execute(self, message: str, user_id: str, plugin_id: str, timezone: str = "UTC", reminder_in_minutes: Optional[int] = None, date: Optional[str] = None, time: Optional[str] = None) -> str:
         """
         Parses the arguments and adds a reminder job to the SchedulerManager.
         """
         try:
-            run_date = datetime.datetime.fromisoformat(iso_timestamp)
-            
-            if run_date <= datetime.datetime.now():
+            now = datetime.datetime.now(datetime.timezone.utc)
+            run_date = None
+
+            if reminder_in_minutes is not None:
+                run_date = now + datetime.timedelta(minutes=reminder_in_minutes)
+            elif date is not None:
+                time_str = time if time else "00:00:00"
+                dt_str = f"{date}T{time_str}"
+                # This assumes the provided date/time is in the specified timezone, then converts to UTC.
+                # A more robust solution would involve pytz for timezone handling.
+                run_date = datetime.datetime.fromisoformat(dt_str).replace(tzinfo=datetime.timezone.utc)
+            else:
+                return "Error: You must provide a time for the reminder using either 'reminder_in_minutes' or 'date'."
+
+            if run_date <= now:
                 return "Error: Reminder time must be in the future."
 
             context = {"plugin_id": plugin_id, "user_id": user_id}
-            return self.scheduler.add_reminder(run_date, message, context)
-            
-        except ValueError:
-            return "Error: Invalid ISO 8601 timestamp format. Please use the format 'YYYY-MM-DDTHH:MM:SS'."
+            scheduler = _get_scheduler()
+            return scheduler.add_date_job(run_date, message, context)
+
+        except ValueError as e:
+            return f"Error: Invalid time format. Please use YYYY-MM-DD for date and HH:MM:SS for time. Details: {e}"
         except Exception as e:
             return f"An unexpected error occurred: {e}"
 
@@ -56,6 +79,6 @@ class SetReminderTool(BaseTool):
         """Formats the raw reminder result for a user-friendly output."""
         if result.startswith("Error"):
             return f"⚠️ {result}"
-        
+
         job_id = result.split(":")[-1].strip()
         return f"⏰ Reminder set! I will notify you at the specified time. (ID: `{job_id}`)"
