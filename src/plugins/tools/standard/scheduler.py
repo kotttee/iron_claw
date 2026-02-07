@@ -21,7 +21,6 @@ class ScheduleTaskTool(BaseTool):
     """
     def __init__(self, scheduler: "SchedulerManager"):
         super().__init__()
-        # Using __dict__ to avoid Pydantic model validation on the scheduler instance
         self.__dict__["scheduler"] = scheduler
 
     @property
@@ -39,7 +38,7 @@ class ScheduleTaskTool(BaseTool):
     def execute(self, task_description: str, cron_expression: str) -> str:
         """Adds a recurring job to the SchedulerManager."""
         scheduler = self.__dict__["scheduler"]
-        return scheduler.add_cron_job(cron_expression, task_description)
+        return scheduler.add_cron_task(cron_expression, task_description)
 
     def format_output(self, result: str) -> str:
         """Formats the raw scheduler result for a user-friendly output."""

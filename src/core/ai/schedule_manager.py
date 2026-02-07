@@ -75,9 +75,9 @@ class SchedulerManager:
         )
         return f"OK. Task scheduled. Job ID: {job_id}"
 
-    def add_reminder(self, run_date: datetime.datetime, message: str, context: Dict[str, Any]) -> str:
+    def add_reminder(self, run_date: datetime.datetime, message: str) -> str:
         """Adds a one-time reminder job."""
-        task_info = {"type": "reminder", "message": message, "context": context}
+        task_info = {"type": "reminder", "message": message}
         return self._add_job(task_info, "date", run_date=run_date)
 
     def add_date_task(self, run_date: datetime.datetime, task_description: str) -> str:

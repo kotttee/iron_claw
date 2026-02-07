@@ -24,7 +24,7 @@ def load_plugin_from_module(module: ModuleType, module_name: str, category: str,
     It can be a class-based plugin or a functional one.
     """
     found_plugins = []
-    
+
     # Check for class-based plugins first
     for name, obj in inspect.getmembers(module, inspect.isclass):
         # We check for BaseTool for tools, but channels might use a different base class or just be classes
@@ -58,7 +58,7 @@ def load_plugin_from_module(module: ModuleType, module_name: str, category: str,
             'name': module_name,
             'description': inspect.getdoc(module.run) or "No description provided.",
             'category': category,
-            'is_enabled': lambda self: True, # Functional tools are enabled by default
+            'is_enabled': True,
             'run': module.run,
             'execute': lambda self, **kwargs: module.run(**kwargs)
         })()

@@ -3,7 +3,6 @@ from typing import Type, Optional
 
 from pydantic import BaseModel, Field, root_validator
 
-from src.core.ai.schedule_manager import _get_scheduler
 from src.interfaces.tool import BaseTool
 
 
@@ -32,6 +31,11 @@ class SetReminderTool(BaseTool):
     For recurring tasks, use the 'standard/schedule_task' tool.
     """
 
+    def __init__(self, scheduler: "SchedulerManager"):
+        super().__init__()
+        self.__dict__["scheduler"] = scheduler
+
+
     @property
     def name(self) -> str:
         return "standard/set_reminder"
@@ -44,7 +48,7 @@ class SetReminderTool(BaseTool):
     def args_schema(self) -> Type[BaseModel]:
         return SetReminderArgs
 
-    def execute(self, message: str, user_id: str, plugin_id: str, timezone: str = "UTC", reminder_in_minutes: Optional[int] = None, date: Optional[str] = None, time: Optional[str] = None) -> str:
+    def execute(self, message: str, timezone: str = "UTC", reminder_in_minutes: Optional[int] = None, date: Optional[str] = None, time: Optional[str] = None) -> str:
         """
         Parses the arguments and adds a reminder job to the SchedulerManager.
         """
@@ -64,11 +68,9 @@ class SetReminderTool(BaseTool):
                 return "Error: You must provide a time for the reminder using either 'reminder_in_minutes' or 'date'."
 
             if run_date <= now:
-                return "Error: Reminder time must be in the future."
+                return "Error: Reminder time must be in the future. Use datetime tool to see time now"
 
-            context = {"plugin_id": plugin_id, "user_id": user_id}
-            scheduler = _get_scheduler()
-            return scheduler.add_date_job(run_date, message, context)
+            return self.__dict__["scheduler"].add_reminder(run_date, message)
 
         except ValueError as e:
             return f"Error: Invalid time format. Please use YYYY-MM-DD for date and HH:MM:SS for time. Details: {e}"
