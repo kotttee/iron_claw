@@ -189,5 +189,5 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             text = text[split_pos:].lstrip()
 
         for part in parts:
-            await self.bot.send_message(chat_id=chat_id, text=part, disable_web_page_preview=True, parse_mode=ParseMode.M)
+            await self.bot.send_message(chat_id=chat_id, text=part, disable_web_page_preview=True, parse_mode=ParseMode.MARKDOWN_V2)
             await asyncio.sleep(0.5)
