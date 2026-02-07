@@ -124,7 +124,7 @@ class Router:
         if target_channel_name:
             channel = next((c for c in self.active_channels if c.name == target_channel_name), None)
             if channel:
-                target = get_key(os.environ.get("ENV_PATH", ".env"), "TELEGRAM_ADMIN_ID") if channel.name == 'telegram_bot' else None
+                target = os.getenv("TELEGRAM_ADMIN_ID") if channel.name == 'telegram_bot' else None
                 return channel, target
 
         # 2. Fallback to the last used channel

@@ -9,6 +9,10 @@ class BaseChannel(ABC):
     such as a console, a Telegram chat, or a Discord server.
     """
 
+    def __init__(self, name: str, category: str):
+        self.name = name
+        self.category = category
+
     @abstractmethod
     def setup_wizard(self) -> None:
         """
