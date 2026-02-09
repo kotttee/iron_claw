@@ -1,6 +1,7 @@
 import asyncio
 import json
 import signal
+import os
 from datetime import datetime
 from rich.console import Console
 from src.core.ai.router import Router
@@ -101,8 +102,25 @@ class Daemon:
                         self.running_tasks.append(asyncio.create_task(self._run_scheduler_loop(component)))
 
         loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, self._shutdown_event.set)
+        
+        # Signals to handle for graceful shutdown
+        signals = (signal.SIGINT, signal.SIGTERM)
+        if os.name != 'nt':
+            # On Unix-like systems, also handle SIGHUP to prevent closing when terminal closes
+            # We can either ignore it or treat it as a shutdown. 
+            # Usually, background daemons should ignore SIGHUP or re-read config.
+            # Here we'll just ignore it to keep the daemon running.
+            try:
+                loop.add_signal_handler(signal.SIGHUP, lambda: None)
+            except (ValueError, RuntimeError):
+                pass
+
+        for sig in signals:
+            try:
+                loop.add_signal_handler(sig, self._shutdown_event.set)
+            except (ValueError, RuntimeError):
+                # Some signals might not be available or catchable in certain environments
+                pass
 
         await self._shutdown_event.wait()
         await self.stop()
