@@ -18,6 +18,7 @@ console = Console()
 class Router:
     def __init__(self):
         self.memory = MemoryManager()
+        self.scheduler = None # Будет установлен Демоном
         self.provider, self.model_name = self._initialize_provider()
         self.plugin_manager = get_all_plugins(router=self)
         self.active_channels = []

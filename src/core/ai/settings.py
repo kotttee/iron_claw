@@ -82,9 +82,16 @@ class SettingsManager:
             return
 
         while True:
-            comp_choices = [f"{'[ON]' if c.config.enabled else '[OFF]'} {c.name}" for c in components]
+            comp_choices = []
+            for c in components:
+                prefix = "🛠️" if c.component_type == "plugin" else "📡" if c.component_type == "channel" else "⏰"
+                status = "[ON]" if c.config.enabled else "[OFF]"
+                comp_choices.append(questionary.Choice(
+                    title=f"{status} {prefix} {c.name}",
+                    value=c
+                ))
             comp_choices.append("⬅️ Back")
-            
+
             selected = questionary.select("Select component to configure:", choices=comp_choices).ask()
             if not selected or "Back" in selected: break
             

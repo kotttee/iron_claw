@@ -47,6 +47,10 @@ def get_all_plugins(router: "Router" = None) -> Dict[str, List[Any]]:
                 module_name = None
                 if item.is_dir() and (item / "__init__.py").exists():
                     module_name = f"src.{base_dir.name}.{category_dir.name}.{item.name}"
+                elif item.is_dir() and (item / "plugin.py").exists():
+                    module_name = f"src.{base_dir.name}.{category_dir.name}.{item.name}.plugin"
+                elif item.is_dir() and (item / "tool.py").exists():
+                    module_name = f"src.{base_dir.name}.{category_dir.name}.{item.name}.tool"
                 elif item.suffix == ".py":
                     module_name = f"src.{base_dir.name}.{category_dir.name}.{item.stem}"
                 
@@ -78,9 +82,6 @@ def get_all_plugins(router: "Router" = None) -> Dict[str, List[Any]]:
                                 all_components["tools"].append(instance)
                             elif isinstance(instance, BaseScheduler):
                                 all_components["schedulers"].append(instance)
-                            
-                            # Once we found a valid component in this module/package, we move to the next item
-                            break
                 except Exception as e:
                     # console.print(f"Error loading plugin {module_name}: {e}")
                     pass

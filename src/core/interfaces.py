@@ -35,7 +35,7 @@ class BaseComponent(ABC, Generic[TConfig]):
         # Use the last part of the name for the data directory (e.g., 'system/read_file' -> 'read_file')
         # This ensures that components in subdirectories store data in a flat structure under data/plugins/
         folder_name = self.name.split('/')[-1]
-        self.data_dir = PLUGINS_DIR / folder_name
+        self.data_dir = DATA_ROOT / "plugins" / folder_name
             
         self.config_path = self.data_dir / "config.json"
         self.db_path = self.data_dir / "storage.db"

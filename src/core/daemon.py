@@ -6,6 +6,7 @@ from rich.console import Console
 from src.core.ai.router import Router
 from src.core.plugin_manager import get_all_plugins
 from src.core.interfaces import BaseChannel, BaseScheduler
+from src.core.scheduler.manager import CoreScheduler
 
 console = Console()
 
@@ -13,6 +14,7 @@ class Daemon:
     def __init__(self):
         console.print("[bold cyan]Daemon: Initializing...[/bold cyan]")
         self.router = Router()
+        self.scheduler = CoreScheduler(self.router)
         self.plugin_manager = self.router.plugin_manager
         self.running_tasks = []
         self._shutdown_event = asyncio.Event()
@@ -79,6 +81,9 @@ class Daemon:
         console.print("[bold green]Daemon: Starting services...[/bold green]")
         ipc_server = await asyncio.start_server(self.handle_ipc_client, '127.0.0.1', 8989)
         self.running_tasks.append(asyncio.create_task(ipc_server.serve_forever()))
+        
+        # Запуск системного планировщика
+        await self.scheduler.start()
 
         for cat in ["channels", "schedulers"]:
             for component in self.plugin_manager.get(cat, []):
