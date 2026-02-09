@@ -171,5 +171,51 @@ def config():
     except Exception as e:
         console.print(f"[bold red]Error loading configuration menu: {e}[/bold red]")
 
+
+@app.command()
+def update():
+    """Updates the IronClaw platform to the latest version from Git."""
+    console.print(Panel("[bold blue]🔄 IronClaw Update System[/bold blue]"))
+
+    try:
+        console.print("Checking for remote changes...")
+        # Выполняем git pull для обновления кода
+        result = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
+
+        if "Already up to date" in result.stdout:
+            console.print("[green]✅ You are already on the latest version.[/green]")
+        else:
+            console.print(f"[bold green]🚀 Successfully updated![/bold green]")
+            console.print(f"[dim]{result.stdout}[/dim]")
+            console.print("\n[yellow]Please restart the Daemon to apply changes.[/yellow]")
+
+    except subprocess.CalledProcessError as e:
+        console.print(f"[bold red]❌ Git update failed:[/bold red]\n{e.stderr}")
+    except FileNotFoundError:
+        console.print("[bold red]❌ Error: Git is not installed or not found in PATH.[/bold red]")
+    except Exception as e:
+        console.print(f"[bold red]❌ An unexpected error occurred: {e}[/bold red]")
+
+
+@app.command()
+def restart(
+        daemon: bool = typer.Option(True, "-d", "--daemon", help="Restart as a background daemon.")
+):
+    """Restarts the IronClaw daemon."""
+    console.print(Panel("🔄 [bold blue]Restarting IronClaw[/bold blue]"))
+
+    if is_running():
+        try:
+            stop()
+        except typer.Exit:
+            # Игнорируем выход из команды stop, чтобы продолжить запуск
+            pass
+
+    # Небольшая пауза, чтобы порты и файлы успели освободиться
+    time.sleep(1)
+    start(daemon=daemon)
+
+
+
 if __name__ == "__main__":
     app()
