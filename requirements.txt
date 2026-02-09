@@ -10,3 +10,4 @@ openai
 xai-sdk
 questionary
 pytz
+croniter

@@ -1,15 +1,10 @@
 from pathlib import Path
-from typing import Type
-
-from pydantic import BaseModel, Field
-
-from src.interfaces.tool import BaseTool
+from typing import Any
+from src.core.interfaces import BaseTool
+from .config import FileToolConfig
 
 WORKSPACE_DIR = Path("data/workspace")
 WORKSPACE_DIR.mkdir(exist_ok=True, parents=True)
-
-class SafePathArgs(BaseModel):
-    path: str = Field(..., description="The relative path to the file or directory within the workspace.")
 
 def get_safe_path(relative_path: str) -> Path | None:
     safe_path = (WORKSPACE_DIR / relative_path).resolve()
@@ -17,18 +12,14 @@ def get_safe_path(relative_path: str) -> Path | None:
         return safe_path
     return None
 
-class ReadFileTool(BaseTool):
-    @property
-    def name(self) -> str:
-        return "system/read_file"
-    @property
-    def description(self) -> str:
-        return "Reads the entire content of a specified file within the workspace."
-    @property
-    def args_schema(self) -> Type[BaseModel]:
-        return SafePathArgs
+class ReadFileTool(BaseTool[FileToolConfig]):
+    """
+    Reads the entire content of a specified file within the workspace.
+    """
+    name = "system/read_file"
+    config_class = FileToolConfig
 
-    def execute(self, path: str) -> str:
+    async def execute(self, path: str) -> str:
         safe_path = get_safe_path(path)
         if not safe_path:
             return f"Error: Access denied. Path is outside the allowed workspace."
@@ -44,20 +35,16 @@ class ReadFileTool(BaseTool):
             return f"⚠️ {result}"
         return f"✅ Read {len(result)} characters from the file."
 
-class WriteFileTool(BaseTool):
-    @property
-    def name(self) -> str:
-        return "system/write_file"
-    @property
-    def description(self) -> str:
-        return "Writes (or overwrites) content to a specified file within the workspace."
-    @property
-    def args_schema(self) -> Type[BaseModel]:
-        class WriteFileArgs(SafePathArgs):
-            content: str = Field(..., description="The content to write to the file.")
-        return WriteFileArgs
+    async def healthcheck(self): return True, "OK"
 
-    def execute(self, path: str, content: str) -> str:
+class WriteFileTool(BaseTool[FileToolConfig]):
+    """
+    Writes (or overwrites) content to a specified file within the workspace.
+    """
+    name = "system/write_file"
+    config_class = FileToolConfig
+
+    async def execute(self, path: str, content: str) -> str:
         safe_path = get_safe_path(path)
         if not safe_path:
             return f"Error: Access denied. Path is outside the allowed workspace."
@@ -73,18 +60,16 @@ class WriteFileTool(BaseTool):
             return f"⚠️ {result}"
         return f"📝 {result}"
 
-class ListFilesTool(BaseTool):
-    @property
-    def name(self) -> str:
-        return "system/list_files"
-    @property
-    def description(self) -> str:
-        return "Lists files and directories within a specified path in the workspace."
-    @property
-    def args_schema(self) -> Type[BaseModel]:
-        return SafePathArgs
+    async def healthcheck(self): return True, "OK"
 
-    def execute(self, path: str) -> str:
+class ListFilesTool(BaseTool[FileToolConfig]):
+    """
+    Lists files and directories within a specified path in the workspace.
+    """
+    name = "system/list_files"
+    config_class = FileToolConfig
+
+    async def execute(self, path: str) -> str:
         safe_path = get_safe_path(path)
         if not safe_path:
             return f"Error: Access denied. Path is outside the allowed workspace."
@@ -104,5 +89,7 @@ class ListFilesTool(BaseTool):
         if result == "Directory is empty.":
             return "📂 Directory is empty."
         
-        num_items = len(result.split('\n')) -1
+        num_items = len(result.split('\n')) - 1
         return f"📂 Found {num_items} items in the directory."
+
+    async def healthcheck(self): return True, "OK"

@@ -13,6 +13,9 @@ DATA_ROOT = BASE_DIR / "data"
 # ~/.iron_claw/data/plugins/
 PLUGINS_DIR = DATA_ROOT / "plugins"
 
+# ~/.iron_claw/data/channels/
+CHANNELS_DIR = DATA_ROOT / "channels"
+
 # ~/.iron_claw/data/config.json
 CONFIG_PATH = DATA_ROOT / "config.json"
 
@@ -41,5 +44,6 @@ CUSTOM_PLUGINS_DIR = PROJECT_ROOT / "src" / "custom"
 BASE_DIR.mkdir(exist_ok=True)
 DATA_ROOT.mkdir(exist_ok=True)
 PLUGINS_DIR.mkdir(exist_ok=True)
+CHANNELS_DIR.mkdir(exist_ok=True)
 IDENTITY_DIR.mkdir(exist_ok=True)
 MEMORY_DIR.mkdir(exist_ok=True)

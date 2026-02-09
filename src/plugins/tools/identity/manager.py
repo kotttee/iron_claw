@@ -1,38 +1,42 @@
-from typing import Type
 from pydantic import BaseModel, Field
-from src.interfaces.tool import BaseTool
-from src.core.ai.identity_manager import IdentityManager
+from src.core.interfaces import BaseTool, ComponentConfig
+from src.core.ai.memory import MemoryManager
+
+class IdentityToolConfig(ComponentConfig):
+    allow_self_modification: bool = True
 
 class UpdateIdentityArgs(BaseModel):
     ai_persona: str = Field(..., description="The AI's persona and behavioral instructions in Markdown format.")
-    user_profile: str = Field(..., description="The user's profile and background information in Markdown format.")
-    preferences: str = Field(..., description="The system preferences and settings in Markdown format.")
+    user_goals: str = Field(..., description="The user's current goals and background information.")
+    preferences: dict = Field(default_factory=dict, description="System preferences and settings.")
 
-class UpdateIdentityTool(BaseTool):
+class UpdateIdentityTool(BaseTool[IdentityToolConfig]):
     """
     A tool that allows the AI to update its own identity, the user's profile, and system preferences.
     """
-    @property
-    def name(self) -> str:
-        return "identity/update_identity"
+    name = "identity/update_identity"
+    config_class = IdentityToolConfig
 
-    @property
-    def description(self) -> str:
-        return "Updates the AI persona, user profile, and system preferences markdown files. Use this to persist changes to who you are, what you know about the user, or system-wide settings."
-
-    @property
-    def args_schema(self) -> Type[BaseModel]:
-        return UpdateIdentityArgs
-
-    def execute(self, ai_persona: str, user_profile: str, preferences: str) -> str:
+    async def execute(self, ai_persona: str, user_goals: str, preferences: dict) -> str:
         """
-        Uses IdentityManager to save the updated identity files.
+        Uses MemoryManager to save the updated identity and profile data.
         """
-        manager = IdentityManager()
-        return manager.run(ai_persona, user_profile, preferences)
+        try:
+            updates = {
+                "persona": ai_persona,
+                "user_goals": user_goals,
+                "preferences": preferences
+            }
+            MemoryManager.update_profile_static(updates)
+            return "Identity and user profile updated successfully."
+        except Exception as e:
+            return f"Error updating identity: {e}"
 
     def format_output(self, result: str) -> str:
         """Formats the identity update result for user-facing output."""
         if "Error" in result:
             return f"⚠️ {result}"
         return "👤 AI identity and preferences have been successfully updated."
+
+    async def healthcheck(self):
+        return True, "OK"

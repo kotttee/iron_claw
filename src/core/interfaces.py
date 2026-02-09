@@ -1,103 +1,127 @@
 import json
+import sqlite3
+import asyncio
 from abc import ABC, abstractmethod
-from dotenv import set_key, get_key
+from pathlib import Path
+from typing import Generic, TypeVar, Type, Any, Optional, Union
+from pydantic import BaseModel, Field
+from rich.console import Console
+from src.core.paths import DATA_ROOT, PLUGINS_DIR, CHANNELS_DIR
 
-# Refactored to use the centralized pathing system
-from .paths import PLUGINS_DIR, ENV_PATH
+console = Console()
 
-class ConfigurablePlugin(ABC):
+class ComponentConfig(BaseModel):
+    enabled: bool = Field(True, description="Whether the component is active.")
+
+TConfig = TypeVar("TConfig", bound=ComponentConfig)
+
+class CronConfig(ComponentConfig):
+    cron: str = Field(..., description="Cron expression (e.g., '0 8 * * *')")
+
+class IntervalConfig(ComponentConfig):
+    interval_seconds: int = Field(..., description="Fixed interval in seconds")
+
+class BaseComponent(ABC, Generic[TConfig]):
     """
-    An abstract base class for stateful, configurable plugins (Channels and Tools).
-    Handles loading/saving of configuration and state (enabled/disabled).
+    Base class for all plugins and channels.
+    Manages configuration via Pydantic and provides a SQLite connection.
     """
-    def __init__(self, name: str, category: str):
-        """
-        Initializes the plugin, setting up its configuration path.
+    name: str
+    config_class: Type[TConfig]
+    component_type: str = "plugin"  # "plugin", "channel", or "scheduler"
 
-        Args:
-            name (str): The unique name of the plugin (e.g., 'telegram', 'weather').
-            category (str): The category of the plugin ('channel' or 'tool').
-        """
-        if not name or not category:
-            raise ValueError("Plugin name and category cannot be empty.")
+    def __init__(self):
+        # Use the last part of the name for the data directory (e.g., 'system/read_file' -> 'read_file')
+        folder_name = self.name.split('/')[-1]
+        
+        if self.component_type == "channel":
+            self.data_dir = CHANNELS_DIR / folder_name
+        else:
+            self.data_dir = DATA_ROOT / "plugins" / folder_name
             
-        self.name = name
-        self.category = category
-        # create path
-        self.directory = PLUGINS_DIR / self.name
-        self.directory.mkdir(parents=True, exist_ok=True)
-        self.config_path = self.directory / f"config.json"
-        self.config: dict = {}
-        self.load_config()
+        self.config_path = self.data_dir / "config.json"
+        self.db_path = self.data_dir / "storage.db"
+        self._db_conn: Optional[sqlite3.Connection] = None
+        self.config = self.load_config()
 
-    def load_config(self):
-        """
-        Loads the plugin's configuration from its JSON file.
-        If the file doesn't exist, initializes with an empty dictionary.
-        """
+    @property
+    def db(self) -> sqlite3.Connection:
+        """Returns a sqlite3 connection to storage.db in the component's data folder."""
+        if self._db_conn is None:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            self._db_conn = sqlite3.connect(self.db_path)
+            self._db_conn.row_factory = sqlite3.Row
+        return self._db_conn
+
+    def load_config(self) -> TConfig:
+        """Loads configuration from config.json or returns default config."""
         if self.config_path.exists():
             try:
-                self.config = json.loads(self.config_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, TypeError):
-                self.config = {} # Start fresh if config is corrupted
-        else:
-            # For the console, default to enabled.
-            if self.name == "console":
-                 self.config = {"enabled": True}
-            else:
-                 self.config = {"enabled": False}
+                data = json.loads(self.config_path.read_text(encoding="utf-8"))
+                return self.config_class(**data)
+            except Exception as e:
+                console.print(f"[bold red]Error loading config for {self.name}: {e}. Falling back to defaults.[/bold red]")
+                return self.config_class()
+        
+        # If config doesn't exist, save the default one
+        default_config = self.config_class()
+        self.save_config_instance(default_config)
+        return default_config
 
     def save_config(self):
-        """
-        Saves the current configuration dictionary to its JSON file.
-        """
-        self.config_path.write_text(json.dumps(self.config, indent=4), encoding="utf-8")
+        """Saves current configuration to config.json."""
+        self.save_config_instance(self.config)
 
-    def is_enabled(self) -> bool:
-        """
-        Checks if the plugin is marked as enabled in its configuration.
-        Defaults to False if not set, except for the 'console' channel.
-        """
-        return self.config.get('enabled', False)
+    def save_config_instance(self, config_inst: TConfig):
+        """Saves a specific configuration instance to config.json."""
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(config_inst.model_dump_json(indent=4), encoding="utf-8")
 
-    def toggle_enabled(self) -> bool:
-        """
-        Toggles the 'enabled' state of the plugin, saves the configuration,
-        and returns the new state.
-        """
-        new_state = not self.is_enabled()
-        self.config['enabled'] = new_state
+    def update_config(self, new_data: dict):
+        """Updates configuration with new data and saves it."""
+        self.config = self.config_class(**{**self.config.model_dump(), **new_data})
         self.save_config()
-        return new_state
 
-    def _save_secret(self, key: str, value: str):
-        """
-        Saves a secret key-value pair to the project's .env file.
-
-        Args:
-            key (str): The environment variable name (e.g., 'TELEGRAM_TOKEN').
-            value (str): The secret value to save.
-        """
-        if not ENV_PATH.exists():
-            ENV_PATH.touch()
-        
-        set_key(str(ENV_PATH), key, value)
-
-    def _get_secret(self, key: str) -> str | None:
-        """
-        Retrieves a secret value from the project's .env file.
-        """
-        return get_key(str(ENV_PATH), key)
+    def shutdown(self):
+        """Gracefully close resources."""
+        if self._db_conn:
+            self._db_conn.close()
+            self._db_conn = None
 
     @abstractmethod
-    def setup_wizard(self):
-        """
-        An abstract method that should implement an interactive setup process
-        for the plugin using a TUI library like `questionary`. This method
-        is responsible for updating `self.config` and calling `self.save_config()`.
-        """
-        raise NotImplementedError("Each plugin must implement its own setup wizard.")
+    async def healthcheck(self) -> tuple[bool, str]:
+        """Performs a health check of the component."""
+        pass
 
-    def get_status_emoji(self) -> str:
-        """Returns a status emoji based on whether the plugin is enabled."""
-        return "🟢" if self.is_enabled() else "🔴"
+class BaseChannel(BaseComponent[TConfig]):
+    component_type = "channel"
+
+    @abstractmethod
+    async def start(self, router: Any):
+        """Starts the channel's main loop."""
+        pass
+
+    @abstractmethod
+    async def send_message(self, text: str, target: Any = None):
+        """Sends a message through the channel."""
+        pass
+
+class BaseTool(BaseComponent[TConfig]):
+    component_type = "plugin"
+
+    @abstractmethod
+    async def execute(self, **kwargs) -> Any:
+        """Executes the tool's logic."""
+        pass
+
+    def format_output(self, result: Any) -> str:
+        """Formats the tool's result for the user."""
+        return str(result)
+
+class BaseScheduler(BaseComponent[TConfig]):
+    component_type = "scheduler"
+
+    @abstractmethod
+    async def run_iteration(self, router: Any):
+        """Runs a single iteration of the scheduled task."""
+        pass

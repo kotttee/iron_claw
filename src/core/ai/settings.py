@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -15,10 +15,10 @@ console = Console()
 class SettingsManager:
     """Manages the CLI-based setup for providers."""
 
-    def __init__(self):
+    def __init__(self, router: Optional[Any] = None):
         self.config = self._load_config()
-        # No longer need to load providers_config directly, will use the factory
         self.provider_factory = provider_factory
+        self.router = router
 
     def _load_config(self) -> Dict[str, Any]:
         """Loads the main config.json file."""
@@ -34,6 +34,14 @@ class SettingsManager:
         """Saves the current configuration to config.json."""
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(json.dumps(self.config, indent=4), encoding="utf-8")
+        
+        # If router is present, trigger re-initialization
+        if self.router:
+            try:
+                self.router.reinitialize_provider()
+                console.print("[bold green]Router: Provider re-initialized successfully.[/bold green]")
+            except Exception as e:
+                console.print(f"[bold red]Router: Failed to re-initialize provider: {e}[/bold red]")
 
     def configure_provider(self) -> bool:
         """Runs the interactive UI to configure the LLM provider."""

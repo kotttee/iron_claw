@@ -1,9 +1,7 @@
 import json
 from rich.console import Console
 from rich.markdown import Markdown
-
-from src.core.kernel import Kernel
-from src.core.ai.identity_manager import IdentityManager
+from src.core.ai.router import Router
 from src.core.ai.settings import SettingsManager
 
 console = Console()
@@ -11,110 +9,55 @@ console = Console()
 SYSTEM_PROMPT = """
 You are the IronClaw Architect. Your goal is to establish the AI's identity, the user's profile, and system preferences.
 
-**Phase 1: AI Persona.** Interview the user to define your own persona. Ask about your name, your tone (e.g., Sarcastic, Professional), and your interaction style.
-**Phase 2: User Profile.** Ask the user about their name, their goals.
-**Phase 3: System Preferences.** Ask the user about their preferences, such as timezone and verbosity. 
+**Phase 1: AI Persona.** Interview the user to define your own persona (name, tone, style).
+**Phase 2: User Profile.** Ask the user about their name and goals.
+**Phase 3: System Preferences.** Ask about preferences (verbosity, etc.).
 
 **Final Action:**
-Once you have a clear understanding of all three,output the special command:
-`###SAVE_IDENTITY### | {"ai_persona": "Format the output as a Markdown list.", "user_profile": "Format the output as a Markdown list", "preferences": "Format the output as a Markdown list"}`
+Once complete, output the special command:
+`###SAVE_IDENTITY### | {"name": "AI Name", "persona": "Persona description", "user_goals": "User goals", "preferences": {"key": "value"}}`
 """
 
 def run_onboarding_session():
-    """
-    Runs the full onboarding process, including provider setup and conversational identity configuration.
-    """
     settings_manager = SettingsManager()
-
-    # Step 1: Ensure provider is configured.
     if not settings_manager.is_provider_configured():
-        console.print("[bold yellow]Provider not configured. Starting setup wizard...[/bold yellow]")
         settings_manager.run_full_setup()
-        if not settings_manager.is_provider_configured():
-            console.print("[bold red]Provider setup is required to continue. Aborting onboarding.[/bold red]")
-            return
 
-    # Step 1.5: Validate provider configuration by trying to use it.
-    kernel = None
-    while kernel is None:
-        try:
-            console.print("[bold cyan]Initializing and validating provider...[/bold cyan]")
-            temp_kernel = Kernel()
-            # Test the provider by listing models. This will fail if the API key is wrong.
-            temp_kernel.router.provider.list_models()
-            kernel = temp_kernel
-            console.print("[bold green]Provider configuration is valid.[/bold green]")
-        except Exception as e:
-            console.print(f"[bold red]Provider validation failed: {e}[/bold red]")
-            console.print("[bold yellow]This could be due to an invalid API key or a network issue.[/bold yellow]")
-            console.print("Let's run the setup wizard again.")
-            settings_manager.run_full_setup()
-            if not settings_manager.is_provider_configured():
-                console.print("[bold red]Provider setup was not completed. Aborting onboarding.[/bold red]")
-                return
-
-    # Step 2: Conversational setup for AI persona and user profile.
+    router = Router()
     console.rule("[bold blue]Conversational Onboarding[/bold blue]")
     
-    # AI starts the conversation by generating its own greeting
-    initial_response = ""
-    with console.status("[bold green]Waking up...[/bold green]", spinner="dots"):
-        initial_response = kernel.router.provider.chat(
-            model=kernel.router.model_name,
-            messages=[], # Start with no messages to prompt the initial greeting
-            system_prompt=SYSTEM_PROMPT
-        )
-    
+    messages = []
+    initial_response = router.provider.chat(
+        model=router.model_name,
+        messages=[],
+        system_prompt=SYSTEM_PROMPT
+    )
     console.print(Markdown(initial_response))
-    kernel.router.context_manager.add_message("assistant", initial_response)
+    messages.append({"role": "assistant", "content": initial_response})
 
     while True:
         try:
             user_input = console.input("You > ")
-            if user_input.lower() in ["exit", "quit"]:
-                break
-
-            kernel.router.context_manager.add_message("user", user_input)
+            if user_input.lower() in ["exit", "quit"]: break
+            messages.append({"role": "user", "content": user_input})
             
-            response = ""
-            with console.status("[bold green]Thinking...[/bold green]", spinner="dots"):
-                response = kernel.router.provider.chat(
-                    model=kernel.router.model_name,
-                    messages=kernel.router.context_manager.history,
-                    system_prompt=SYSTEM_PROMPT
-                )
-
-            kernel.router.context_manager.add_message("assistant", response)
+            response = router.provider.chat(
+                model=router.model_name,
+                messages=messages,
+                system_prompt=SYSTEM_PROMPT
+            )
+            messages.append({"role": "assistant", "content": response})
 
             if "###SAVE_IDENTITY###" in response:
-                console.print("[bold yellow]Identity save command detected. Processing...[/bold yellow]")
                 try:
-                    command_part = response.split("###SAVE_IDENTITY### |", 1)[1].strip()
-                    identity_data = json.loads(command_part)
-                    ai_persona = identity_data.get("ai_persona")
-                    user_profile = identity_data.get("user_profile")
-                    preferences = identity_data.get("preferences")
-
-                    if not ai_persona or not user_profile or not preferences:
-                        console.print("[bold red]Error: Invalid data. 'ai_persona', 'user_profile', or 'preferences' missing.[/bold red]")
-                        continue
-
-                    identity_manager = IdentityManager()
-                    result = identity_manager.run(ai_persona, user_profile, preferences)
-                    console.print(f"[bold green]{result}[/bold green]")
-                    
-                    console.print("Onboarding complete. You can now use 'ironclaw talk'.")
+                    data_str = response.split("###SAVE_IDENTITY### |", 1)[1].strip()
+                    data = json.loads(data_str)
+                    router.memory.update_config(data)
+                    console.print("[bold green]Identity saved successfully![/bold green]")
                     break
-                except (json.JSONDecodeError, IndexError) as e:
-                    console.print(f"[bold red]Error parsing identity data: {e}[/bold red]")
-                    kernel.router.context_manager.history.pop()
-                    continue
+                except Exception as e:
+                    console.print(f"[bold red]Error saving identity: {e}[/bold red]")
             else:
                 console.print(Markdown(response))
-
         except KeyboardInterrupt:
-            console.print("\n[bold yellow]Onboarding interrupted. Exiting.[/bold yellow]")
-            break
-        except Exception as e:
-            console.print(f"[bold red]An unexpected error occurred: {e}[/bold red]")
             break
