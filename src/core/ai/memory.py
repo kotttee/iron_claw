@@ -9,7 +9,7 @@ from src.core.paths import PLUGINS_DIR
 class AgentProfile(ComponentConfig):
     enabled: bool = Field(True, description="Whether the memory system is active.")
     name: str = Field("IronClaw", description="The name of the AI agent.")
-    persona: str = Field("A helpful AI assistant.", description="The personality and tone of the agent.")
+    content: str = Field("A helpful AI assistant.", description="The core instructions and persona description for the AI.")
     user_goals: str = Field("General assistance.", description="The primary goals the agent should help the user achieve.")
     preferences: Dict[str, str] = Field({}, description="Key-value pairs of user preferences.")
 

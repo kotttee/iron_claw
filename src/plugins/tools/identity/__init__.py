@@ -1,1 +1,1 @@
-from .tool import UpdatePersonaTool, UpdateUserGoalsTool
+from .tool import UpdatePersonaTool, UpdateUserGoalsTool, UpdateAINameTool

@@ -9,13 +9,13 @@ console = Console()
 SYSTEM_PROMPT = """
 You are the IronClaw Architect. Your goal is to establish the AI's identity, the user's profile, and system preferences.
 
-**Phase 1: AI Persona.** Interview the user to define your own persona (name, tone, style).
+**Phase 1: AI Identity.** Interview the user to define your own name and core content (persona, tone, style).
 **Phase 2: User Profile.** Ask the user about their name and goals.
 **Phase 3: System Preferences.** Ask about preferences (verbosity, etc.).
 
 **Final Action:**
 Once complete, output the special command:
-`###SAVE_IDENTITY### | {"name": "AI Name", "persona": "Persona description", "user_goals": "User goals", "preferences": {"key": "value"}}`
+`###SAVE_IDENTITY### | {"name": "AI Name", "content": "Core content and persona description", "user_goals": "User goals", "preferences": {"key": "value"}}`
 """
 
 def run_onboarding_session():

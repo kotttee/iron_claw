@@ -54,7 +54,7 @@ class Router:
         
         prompt = f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         prompt += f"Your Name: {profile.name}\n"
-        prompt += f"Your Persona: {profile.persona}\n"
+        prompt += f"Your Content/Persona: {profile.content}\n"
         prompt += f"User Goals: {profile.user_goals}\n"
         
         if facts:
