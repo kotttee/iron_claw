@@ -8,7 +8,7 @@ BASE_DIR = Path.home() / ".iron_claw"
 ENV_PATH = BASE_DIR / ".env"
 
 # ~/.iron_claw/data/
-DATA_ROOT = Path.home() / "iron_claw_data"
+DATA_ROOT = Path.home() / ".iron_claw_data"
 
 # ~/.iron_claw/data/plugins/
 PLUGINS_DIR = DATA_ROOT / "plugins"
