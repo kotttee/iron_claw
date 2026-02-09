@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 
+from src.core.ai.router import Router
 from src.core.daemon import Daemon
 from src.core.paths import DATA_ROOT, BASE_DIR, ENV_PATH
 from src.core.ai.onboarding import run_onboarding_session
@@ -46,6 +47,18 @@ def start(
     if is_running():
         console.print("[bold yellow]IronClaw agent is already running.[/bold yellow]")
         raise typer.Exit()
+
+    settings = SettingsManager()
+    if not settings.is_provider_configured():
+        console.print("[bold yellow]IronClaw is not configured yet. You need to set up an LLM provider first.[/bold yellow]")
+        if questionary.confirm("Would you like to run the setup wizard now?").ask():
+            settings.run_full_setup()
+            if not settings.is_provider_configured():
+                console.print("[bold red]Setup was not completed. Cannot start daemon.[/bold red]")
+                raise typer.Exit(1)
+        else:
+            console.print("Please run [bold]ironclaw config[/bold] or [bold]ironclaw onboard[/bold] to set up the agent.")
+            raise typer.Exit()
 
     if daemon:
         console.print(Panel("🚀 [bold green]Starting IronClaw Daemon in background[/bold green]"))
@@ -151,7 +164,12 @@ def onboard():
 @app.command()
 def config():
     """Interactive configuration menu."""
-    SettingsManager().configure_provider()
+    try:
+        # Initialize router to load plugins for the config menu
+        r = Router()
+        SettingsManager(router=r).run_main_menu()
+    except Exception as e:
+        console.print(f"[bold red]Error loading configuration menu: {e}[/bold red]")
 
 if __name__ == "__main__":
     app()

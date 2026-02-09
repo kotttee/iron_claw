@@ -39,28 +39,50 @@ def get_all_plugins(router: "Router" = None) -> Dict[str, List[Any]]:
                 else:
                     continue
 
-            prefix = f"src.{base_dir.name}.{category_dir.name}."
-            # We want to walk through all modules and packages
-            for _, name, ispkg in pkgutil.walk_packages([str(category_dir)], prefix=prefix):
+            # Scan each subdirectory/file in the category directory
+            for item in category_dir.iterdir():
+                if item.name.startswith("__"):
+                    continue
+                
+                module_name = None
+                if item.is_dir() and (item / "__init__.py").exists():
+                    module_name = f"src.{base_dir.name}.{category_dir.name}.{item.name}"
+                elif item.suffix == ".py":
+                    module_name = f"src.{base_dir.name}.{category_dir.name}.{item.stem}"
+                
+                if not module_name:
+                    continue
+
                 try:
-                    module = importlib.import_module(name)
+                    module = importlib.import_module(module_name)
+                    
+                    # Look for a class that inherits from the appropriate base class
+                    target_base = BaseComponent
+                    if category_dir.name == "channels":
+                        target_base = BaseChannel
+                    elif category_dir.name in ["tools", "plugins"]:
+                        target_base = BaseTool
+                    elif category_dir.name == "schedulers":
+                        target_base = BaseScheduler
+
                     for _, obj in inspect.getmembers(module, inspect.isclass):
-                        # Check if it's a subclass of BaseComponent and not one of the base classes themselves
-                        if issubclass(obj, BaseComponent) and obj not in (BaseComponent, BaseTool, BaseChannel, BaseScheduler):
-                            # Ensure the class is defined in the module we just imported (avoid duplicates from imports)
-                            if obj.__module__ == name:
-                                instance = obj()
-                                # Only add if enabled
-                                if not instance.config.enabled:
-                                    continue
-                                    
-                                if category_dir.name == "channels":
-                                    all_components["channels"].append(instance)
-                                elif category_dir.name == "tools" or category_dir.name == "plugins":
-                                    all_components["tools"].append(instance)
-                                elif category_dir.name == "schedulers":
-                                    all_components["schedulers"].append(instance)
-                except Exception:
+                        if issubclass(obj, target_base) and obj not in (BaseComponent, BaseTool, BaseChannel, BaseScheduler):
+                            # For directory-based plugins, we often export the class in __init__.py
+                            # We want to instantiate it once.
+                            instance = obj()
+                            
+                            # Add to the appropriate list
+                            if isinstance(instance, BaseChannel):
+                                all_components["channels"].append(instance)
+                            elif isinstance(instance, BaseTool):
+                                all_components["tools"].append(instance)
+                            elif isinstance(instance, BaseScheduler):
+                                all_components["schedulers"].append(instance)
+                            
+                            # Once we found a valid component in this module/package, we move to the next item
+                            break
+                except Exception as e:
+                    # console.print(f"Error loading plugin {module_name}: {e}")
                     pass
 
     return all_components

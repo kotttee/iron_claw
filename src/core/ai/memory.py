@@ -2,15 +2,16 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-from pydantic import BaseModel
-from src.core.interfaces import BaseComponent
+from pydantic import BaseModel, Field
+from src.core.interfaces import BaseComponent, ComponentConfig
 from src.core.paths import PLUGINS_DIR
 
-class AgentProfile(BaseModel):
-    name: str = "IronClaw"
-    persona: str = "A helpful AI assistant."
-    user_goals: str = "General assistance."
-    preferences: Dict[str, str] = {}
+class AgentProfile(ComponentConfig):
+    enabled: bool = Field(True, description="Whether the memory system is active.")
+    name: str = Field("IronClaw", description="The name of the AI agent.")
+    persona: str = Field("A helpful AI assistant.", description="The personality and tone of the agent.")
+    user_goals: str = Field("General assistance.", description="The primary goals the agent should help the user achieve.")
+    preferences: Dict[str, str] = Field({}, description="Key-value pairs of user preferences.")
 
 class MemoryManager(BaseComponent[AgentProfile]):
     """

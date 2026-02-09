@@ -140,8 +140,7 @@ fi
 # --- 6. Final Configuration ---
 info "\n--- Step 6: Final Configuration Check ---"
 if [ ! -f "$PROJECT_DIR/data/config.json" ]; then
-    warn "No configuration found. Running initial setup wizard..."
-    $RUNNER_SCRIPT onboard
+    warn "No configuration found. Run ironclaw onboard "
 else
     success "✔ Existing configuration found."
 fi
@@ -152,11 +151,11 @@ success "-------------------------------------------"
 success "  IronClaw Installation Complete!          "
 success "-------------------------------------------"
 info "You can now run the agent from any folder using:"
+info "  ironclaw onboard"
 info "  ironclaw start (manual)"
 info "  ironclaw stop (manual)"
 info "  ironclaw restart (manual)"
 info "  ironclaw stop (manual)"
-info "  ironclaw onboard"
 info "  ironclaw config"
 info "  ironclaw update"
 info "Or manage the background service with:"

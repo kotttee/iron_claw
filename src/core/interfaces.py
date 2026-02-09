@@ -4,22 +4,23 @@ import asyncio
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Generic, TypeVar, Type, Any, Optional, Union
+import questionary
 from pydantic import BaseModel, Field
 from rich.console import Console
-from src.core.paths import DATA_ROOT, PLUGINS_DIR, CHANNELS_DIR
+from src.core.paths import DATA_ROOT, PLUGINS_DIR
 
 console = Console()
 
 class ComponentConfig(BaseModel):
-    enabled: bool = Field(True, description="Whether the component is active.")
+    enabled: bool = Field(True, description="Whether the component is active and should be loaded.")
 
 TConfig = TypeVar("TConfig", bound=ComponentConfig)
 
 class CronConfig(ComponentConfig):
-    cron: str = Field(..., description="Cron expression (e.g., '0 8 * * *')")
+    cron: str = Field(..., description="Cron expression for scheduling (e.g., '0 8 * * *' for daily at 8 AM).")
 
 class IntervalConfig(ComponentConfig):
-    interval_seconds: int = Field(..., description="Fixed interval in seconds")
+    interval_seconds: int = Field(..., description="Fixed interval in seconds between executions.")
 
 class BaseComponent(ABC, Generic[TConfig]):
     """
@@ -32,12 +33,9 @@ class BaseComponent(ABC, Generic[TConfig]):
 
     def __init__(self):
         # Use the last part of the name for the data directory (e.g., 'system/read_file' -> 'read_file')
+        # This ensures that components in subdirectories store data in a flat structure under data/plugins/
         folder_name = self.name.split('/')[-1]
-        
-        if self.component_type == "channel":
-            self.data_dir = CHANNELS_DIR / folder_name
-        else:
-            self.data_dir = DATA_ROOT / "plugins" / folder_name
+        self.data_dir = PLUGINS_DIR / folder_name
             
         self.config_path = self.data_dir / "config.json"
         self.db_path = self.data_dir / "storage.db"
@@ -81,6 +79,34 @@ class BaseComponent(ABC, Generic[TConfig]):
         """Updates configuration with new data and saves it."""
         self.config = self.config_class(**{**self.config.model_dump(), **new_data})
         self.save_config()
+
+    def run_setup_wizard(self):
+        """Automatically generates an interactive setup wizard based on the config Pydantic model."""
+        console.print(f"\n[bold cyan]Settings for {self.name}:[/bold cyan]")
+        new_values = {}
+        
+        for field_name, field_info in self.config_class.model_fields.items():
+            # Skip internal fields if any start with underscore
+            if field_name.startswith('_'): continue
+            
+            description = field_info.description or field_name
+            current_val = getattr(self.config, field_name)
+            
+            if isinstance(current_val, bool):
+                val = questionary.confirm(f"{description}?", default=current_val).ask()
+            elif isinstance(current_val, int):
+                val = questionary.text(f"{description}:", default=str(current_val), 
+                                       validate=lambda text: text.isdigit() or "Must be an integer").ask()
+                if val is not None: val = int(val)
+            else:
+                val = questionary.text(f"{description}:", default=str(current_val)).ask()
+            
+            if val is not None:
+                new_values[field_name] = val
+
+        if new_values:
+            self.update_config(new_values)
+            console.print(f"[green]✔ {self.name} configuration updated.[/green]")
 
     def shutdown(self):
         """Gracefully close resources."""

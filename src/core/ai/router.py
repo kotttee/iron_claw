@@ -21,11 +21,12 @@ class Router:
         self.provider, self.model_name = self._initialize_provider()
         self.plugin_manager = get_all_plugins(router=self)
         self.active_channels = []
-        self.last_channel_name = None
         
         self.is_busy = False
         self.current_task: Optional[asyncio.Task] = None
         self.ipc_writers: Dict[str, asyncio.StreamWriter] = {}
+        # Map source/channel to specific target IDs (e.g., Telegram chat IDs)
+        self.active_targets: Dict[str, str] = {}
 
     def register_channel(self, channel):
         if channel not in self.active_channels:
@@ -61,6 +62,9 @@ class Router:
         tools = self.plugin_manager.get("tools", [])
         tool_defs = []
         for t in tools:
+            # Only include tools that are enabled
+            if not t.config.enabled:
+                continue
             doc = inspect.getdoc(t.execute) or "No description."
             sig = inspect.signature(t.execute)
             args = ", ".join([f"{p.name}" for p in sig.parameters.values() if p.name != 'self'])
@@ -73,9 +77,12 @@ class Router:
             
         return prompt
 
-    async def process_message(self, user_message: str, source: str, writer: Optional[asyncio.StreamWriter] = None) -> None:
+    async def process_message(self, user_message: str, source: str, target_id: Optional[str] = None, writer: Optional[asyncio.StreamWriter] = None) -> None:
         if writer:
             self.ipc_writers[source] = writer
+        
+        if target_id:
+            self.active_targets[source] = target_id
 
         if self.is_busy:
             if user_message.lower().strip() == "stop":
@@ -98,7 +105,6 @@ class Router:
 
     async def _run_chat_loop(self, user_message: str, source: str):
         self.is_busy = True
-        self.last_channel_name = source
         self.memory.add_message("user", user_message)
         
         max_iterations = 5
@@ -127,7 +133,8 @@ class Router:
 
     async def _execute_tool(self, name, args):
         tool = next((t for t in self.plugin_manager.get("tools", []) if t.name == name), None)
-        if not tool: return "Tool not found", "Error: Tool not found"
+        if not tool or not tool.config.enabled:
+            return "Tool not found or disabled", "Error: Tool not found or disabled"
         try:
             res = await tool.execute(**args)
             return str(res), tool.format_output(res)
@@ -143,6 +150,7 @@ class Router:
         return None
 
     async def _send_to_channel(self, text: str, source: str):
+        # Handle IPC/Console directly if applicable
         if source.startswith("ipc_") or source == "console":
             writer = self.ipc_writers.get(source)
             if writer:
@@ -153,10 +161,12 @@ class Router:
                 except:
                     del self.ipc_writers[source]
 
+        # Find the registered channel
         channel = next((c for c in self.active_channels if c.name == source), None)
         if not channel:
+            # Fallback to console if source channel not found
             channel = next((c for c in self.active_channels if c.name == "console"), None)
         
         if channel:
-            target = os.getenv("TELEGRAM_ADMIN_ID") if channel.name == "telegram_bot" else None
+            target = self.active_targets.get(source)
             await channel.send_message(text, target)

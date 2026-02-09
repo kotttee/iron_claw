@@ -1,6 +1,6 @@
 import asyncio
 from functools import partial
-from typing import Any, Dict, Tuple, TYPE_CHECKING
+from typing import Any, Tuple, TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.enums import ChatAction, ParseMode
@@ -8,8 +8,8 @@ from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramUnauthorizedError
 from rich.console import Console
 
-from src.interfaces.channel import BaseChannel
-from src.core.interfaces import ConfigurablePlugin
+from src.core.interfaces import BaseChannel
+from .config import TelegramConfig
 
 if TYPE_CHECKING:
     from src.core.ai.router import Router
@@ -19,75 +19,48 @@ console = Console()
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TYPING_INTERVAL_SECONDS = 4.5
 
-class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
+class TelegramChannel(BaseChannel[TelegramConfig]):
     """
     A production-ready channel for interacting with an AI agent via a Telegram Bot.
     This bot is designed to serve a single admin user.
     """
+    name = "telegram"
+    config_class = TelegramConfig
 
     def __init__(self):
-        BaseChannel.__init__(self, name="telegram_bot", category="channel")
-        ConfigurablePlugin.__init__(self, name="telegram_bot", category="channel")
+        super().__init__()
         self.bot: Bot | None = None
         self.admin_id: int | None = None
 
     async def healthcheck(self) -> Tuple[bool, str]:
         """Checks if the bot token and admin ID are valid."""
-        token = self._get_secret("TELEGRAM_BOT_TOKEN")
-        admin_id_str = self._get_secret("TELEGRAM_ADMIN_ID")
-
-        if not token:
+        if not self.config.bot_token:
             return False, "Telegram Bot Token is not set."
-        if not admin_id_str:
+        if not self.config.admin_id:
             return False, "Telegram Admin ID is not set."
 
         try:
-            temp_bot = Bot(token=token)
+            temp_bot = Bot(token=self.config.bot_token)
             bot_user = await temp_bot.get_me()
-            await temp_bot.session.close() # Clean up the session
+            await temp_bot.session.close()
             return True, f"OK (Bot: @{bot_user.username})"
         except TelegramUnauthorizedError:
             return False, "Telegram Bot Token is invalid or expired."
         except Exception as e:
             return False, f"An unexpected error occurred during Telegram health check: {e}"
 
-    def setup_wizard(self) -> None:
-        """Interactively prompts for Telegram configuration for a single admin user."""
-        from rich.prompt import Prompt
-
-        console.print("[bold blue]Configuring Telegram Bot Channel...[/bold blue]")
-        console.print("You can get a token by talking to [bold magenta]@BotFather[/bold magenta] on Telegram.")
-        token = Prompt.ask("Enter Telegram Bot Token", default=self._get_secret("TELEGRAM_BOT_TOKEN"))
-        
-        if token:
-            self._save_secret("TELEGRAM_BOT_TOKEN", token)
-
-        console.print("\nEnter the Telegram User ID of the admin who will use this bot.")
-        console.print("You can find your ID by messaging [bold magenta]@userinfobot[/bold magenta].")
-        admin_id_str = Prompt.ask("Admin User ID", default=self._get_secret("TELEGRAM_ADMIN_ID"))
-
-        if admin_id_str:
-            try:
-                admin_id = int(admin_id_str.strip())
-                self._save_secret("TELEGRAM_ADMIN_ID", str(admin_id))
-                self.config["enabled"] = True
-                self.save_config()
-                console.print("✅ Telegram configured successfully.")
-            except ValueError:
-                console.print("[bold red]Error: Invalid User ID. Please enter a number only.[/bold red]")
-                self.config["enabled"] = False
-                self.save_config()
-        else:
-            self.config["enabled"] = False
-            self.save_config()
-
-    async def start(self, config: Dict[str, Any], router: "Router"):
+    async def start(self, router: "Router"):
         """Initializes and starts the Telegram bot's polling loop."""
-        token = self._get_secret("TELEGRAM_BOT_TOKEN")
-        admin_id_str = self._get_secret("TELEGRAM_ADMIN_ID")
-        
-        self.admin_id = int(admin_id_str)
-        self.bot = Bot(token=token)
+        if not self.config.enabled:
+            return
+
+        try:
+            self.admin_id = int(self.config.admin_id)
+        except ValueError:
+            console.print(f"[bold red]Invalid Admin ID for Telegram: {self.config.admin_id}[/bold red]")
+            return
+
+        self.bot = Bot(token=self.config.bot_token)
         dp = Dispatcher()
 
         dp.message(CommandStart())(self._handle_start)
@@ -128,8 +101,7 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
 
         typing_task = asyncio.create_task(self._typing_loop(message.chat.id))
         try:
-            # Fire-and-forget: The router is responsible for sending the response.
-            router.process_message(text_to_process, "telegram_bot")
+            await router.process_message(text_to_process, "telegram", str(message.chat.id))
         finally:
             typing_task.cancel()
 
@@ -153,13 +125,18 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             system_text = f"[SYSTEM EVENT: User sent a DOCUMENT. Filename: {doc.file_name}. File ID: {doc.file_id}]"
             await self._process_with_typing(message, router, system_text)
 
-    def send_message(self, text: str, target: str):
-        """Sends a message to the target user. Required by the Router."""
+    async def send_message(self, text: str, target: str | None = None):
+        """Sends a message to the target user."""
         if not self.bot:
             console.print("[bold red]Cannot send message, bot is not initialized.[/bold red]")
             return
         
-        asyncio.create_task(self._send_text_async(target, text))
+        target_id = target or self.config.admin_id
+        if not target_id:
+            console.print("[bold red]No target ID provided for Telegram message.[/bold red]")
+            return
+
+        await self._send_text_async(target_id, text)
 
     async def _send_text_async(self, user_id: str, text: str):
         """Asynchronously sends a text message, handling splitting."""
@@ -189,5 +166,8 @@ class TelegramBotChannel(BaseChannel, ConfigurablePlugin):
             text = text[split_pos:].lstrip()
 
         for part in parts:
-            await self.bot.send_message(chat_id=chat_id, text=part, disable_web_page_preview=True, parse_mode=ParseMode.MARKDOWN_V2)
-            await asyncio.sleep(0.5)
+            try:
+                await self.bot.send_message(chat_id=chat_id, text=part, disable_web_page_preview=True)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                console.print(f"[bold red]Error sending Telegram message part: {e}[/bold red]")

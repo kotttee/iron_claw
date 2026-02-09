@@ -1,6 +1,11 @@
 from typing import List
+from pydantic import Field
 from src.core.interfaces import ComponentConfig
 
 class BashToolConfig(ComponentConfig):
-    safe_commands: List[str] = ["ls", "pwd", "echo", "whoami", "date", "uname", "df", "du", "free", "uptime"]
-    timeout_seconds: int = 15
+    enabled: bool = Field(True, description="Whether the Bash execution tool is active.")
+    safe_commands: List[str] = Field(
+        ["ls", "pwd", "echo", "whoami", "date", "uname", "df", "du", "free", "uptime"],
+        description="List of commands that are considered safe to execute without extra confirmation."
+    )
+    timeout_seconds: int = Field(15, description="Maximum time (in seconds) a command is allowed to run.")

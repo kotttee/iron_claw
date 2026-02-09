@@ -53,7 +53,7 @@ def run_onboarding_session():
                     data_str = response.split("###SAVE_IDENTITY### |", 1)[1].strip()
                     data = json.loads(data_str)
                     router.memory.update_config(data)
-                    console.print("[bold green]Identity saved successfully![/bold green]")
+                    console.print("[bold green]Identity saved successfully! Use ironclaw talk to start a chat session or ironclaw config to update settings.[/bold green]")
                     break
                 except Exception as e:
                     console.print(f"[bold red]Error saving identity: {e}[/bold red]")

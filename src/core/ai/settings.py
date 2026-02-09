@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
+import questionary
 
 from rich.console import Console
 from rich.panel import Panel
@@ -42,6 +43,60 @@ class SettingsManager:
                 console.print("[bold green]Router: Provider re-initialized successfully.[/bold green]")
             except Exception as e:
                 console.print(f"[bold red]Router: Failed to re-initialize provider: {e}[/bold red]")
+
+    def run_main_menu(self):
+        """Main interactive configuration hub."""
+        while True:
+            choice = questionary.select(
+                "IronClaw Configuration Menu",
+                choices=[
+                    "🧠 Core LLM Settings",
+                    "📡 Manage Channels",
+                    "🛠️ Manage Plugins & Schedulers",
+                    questionary.Separator(),
+                    "⬅️ Back to CLI"
+                ]
+            ).ask()
+
+            if not choice or "Back" in choice:
+                break
+
+            if "Core" in choice:
+                self.configure_provider()
+            elif "Channels" in choice:
+                self._manage_components("channels")
+            elif "Plugins" in choice:
+                self._manage_components("tools", "schedulers")
+
+    def _manage_components(self, *categories):
+        if not self.router:
+            console.print("[red]Error: Router not initialized. Cannot manage components.[/red]")
+            return
+
+        components = []
+        for cat in categories:
+            components.extend(self.router.plugin_manager.get(cat, []))
+
+        if not components:
+            console.print("[yellow]No components found in these categories.[/yellow]")
+            return
+
+        while True:
+            comp_choices = [f"{'[ON]' if c.config.enabled else '[OFF]'} {c.name}" for c in components]
+            comp_choices.append("⬅️ Back")
+            
+            selected = questionary.select("Select component to configure:", choices=comp_choices).ask()
+            if not selected or "Back" in selected: break
+            
+            # Find the actual component object
+            comp_name = selected.split(" ", 1)[1]
+            comp = next(c for c in components if c.name == comp_name)
+            
+            action = questionary.select(f"Action for {comp.name}:", choices=["Toggle Enabled", "Run Setup Wizard", "Back"]).ask()
+            if action == "Toggle Enabled":
+                comp.update_config({"enabled": not comp.config.enabled})
+            elif action == "Run Setup Wizard":
+                comp.run_setup_wizard()
 
     def configure_provider(self) -> bool:
         """Runs the interactive UI to configure the LLM provider."""

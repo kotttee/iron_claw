@@ -1,12 +1,9 @@
 from rich.console import Console
 from rich.markdown import Markdown
-from pydantic import BaseModel
 from src.core.interfaces import BaseChannel
+from .config import ConsoleConfig
 
 console = Console()
-
-class ConsoleConfig(BaseModel):
-    enabled: bool = True
 
 class ConsoleChannel(BaseChannel[ConsoleConfig]):
     """
