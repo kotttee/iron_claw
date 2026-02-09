@@ -1,6 +1,5 @@
 from typing import Any
 from src.core.interfaces import BaseTool
-from src.plugins.schedulers.schedule_manager.plugin import ScheduleManager
 from .config import SchedulerToolConfig
 
 class ScheduleTaskTool(BaseTool[SchedulerToolConfig]):
@@ -13,7 +12,11 @@ class ScheduleTaskTool(BaseTool[SchedulerToolConfig]):
     async def execute(self, task_description: str, cron: str) -> str:
         """Schedules a recurring task via the central ScheduleManager."""
         try:
-            ScheduleManager.add_task("cron", task_description, cron)
+            # Используем системный планировщик через router
+            if not hasattr(self, 'router') or not self.router.scheduler:
+                return "Error: Scheduler system is not initialized in Router."
+            
+            await self.router.scheduler.add_task("cron", task_description, cron)
             return f"Recurring task scheduled: {task_description} (Cron: {cron})"
         except Exception as e:
             return f"Error: {e}"

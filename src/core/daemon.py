@@ -15,6 +15,7 @@ class Daemon:
         console.print("[bold cyan]Daemon: Initializing...[/bold cyan]")
         self.router = Router()
         self.scheduler = CoreScheduler(self.router)
+        self.router.scheduler = self.scheduler
         self.plugin_manager = self.router.plugin_manager
         self.running_tasks = []
         self._shutdown_event = asyncio.Event()
