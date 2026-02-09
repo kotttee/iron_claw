@@ -5,7 +5,7 @@ from datetime import datetime
 from rich.console import Console
 from src.core.ai.router import Router
 from src.core.plugin_manager import get_all_plugins
-from src.core.interfaces import BaseChannel, BaseScheduler
+from src.core.interfaces import BaseChannel, BaseComponent
 from src.core.scheduler.manager import CoreScheduler
 
 console = Console()
@@ -34,7 +34,7 @@ class Daemon:
             writer.close()
             await writer.wait_closed()
 
-    async def _run_scheduler_loop(self, scheduler: BaseScheduler):
+    async def _run_scheduler_loop(self, scheduler: BaseComponent):
         console.print(f"[blue]Daemon: Starting scheduler '{scheduler.name}'[/blue]")
         
         while not self._shutdown_event.is_set():
