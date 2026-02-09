@@ -1,6 +1,5 @@
 import importlib
 import inspect
-import pkgutil
 from pathlib import Path
 from typing import Dict, List, Any, TYPE_CHECKING
 from src.core.interfaces import BaseComponent, BaseTool, BaseChannel, BaseScheduler

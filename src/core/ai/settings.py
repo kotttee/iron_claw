@@ -92,12 +92,9 @@ class SettingsManager:
                 ))
             comp_choices.append("⬅️ Back")
 
-            selected = questionary.select("Select component to configure:", choices=comp_choices).ask()
-            if not selected or "Back" in selected: break
-            
-            # Find the actual component object
-            comp_name = selected.split(" ", 1)[1]
-            comp = next(c for c in components if c.name == comp_name)
+            comp = questionary.select("Select component to configure:", choices=comp_choices).ask()
+            if not comp or comp == "⬅️ Back":
+                break
             
             action = questionary.select(f"Action for {comp.name}:", choices=["Toggle Enabled", "Run Setup Wizard", "Back"]).ask()
             if action == "Toggle Enabled":

@@ -143,10 +143,22 @@ class Router:
             return str(e), f"Error: {e}"
 
     def _parse_tool_call(self, text):
+        """Improved parser that handles Markdown blocks and conversational noise."""
+        text = text.strip()
+        # Remove markdown code blocks if the AI wrapped the JSON
+        if "```" in text:
+            # Try to extract content between ```json and ``` or just ``` and ```
+            import re
+            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            if match:
+                text = match.group(1)
+
         try:
-            start = text.find('{"tool":')
-            if start != -1:
-                return json.loads(text[start:text.rfind('}')+1])
+            # Find the first '{' and last '}' to isolate the JSON object
+            start = text.find('{')
+            end = text.rfind('}')
+            if start != -1 and end != -1:
+                return json.loads(text[start:end+1])
         except: pass
         return None
 
