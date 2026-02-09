@@ -167,7 +167,7 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
 
         for part in parts:
             try:
-                await self.bot.send_message(chat_id=chat_id, text=part, disable_web_page_preview=True, parse_mode=ParseMode.MARKDOWN_V2)
+                await self.bot.send_message(chat_id=chat_id, text=part, disable_web_page_preview=True, parse_mode=ParseMode.MARKDOW)
                 await asyncio.sleep(0.5)
             except Exception as e:
                 console.print(f"[bold red]Error sending Telegram message part: {e}[/bold red]")
