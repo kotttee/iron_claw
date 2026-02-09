@@ -28,7 +28,7 @@ class BaseComponent(ABC, Generic[TConfig]):
     Manages configuration via Pydantic and provides a SQLite connection.
     """
     name: str
-    config_class: Type[TConfig]
+    config_class: Type[TConfig] = ComponentConfig  # type: ignore
     component_type: str = "plugin"  # "plugin", "channel", or "scheduler"
 
     def __init__(self):
@@ -58,13 +58,20 @@ class BaseComponent(ABC, Generic[TConfig]):
                 data = json.loads(self.config_path.read_text(encoding="utf-8"))
                 return self.config_class(**data)
             except Exception as e:
-                console.print(f"[bold red]Error loading config for {self.name}: {e}. Falling back to defaults.[/bold red]")
-                return self.config_class()
+                console.print(f"[bold red]Error loading config for {self.name}: {e}. Trying to recover...[/bold red]")
         
-        # If config doesn't exist, save the default one
-        default_config = self.config_class()
-        self.save_config_instance(default_config)
-        return default_config
+        # Пытаемся создать дефолтный конфиг. 
+        # Если в config_class есть обязательные поля без дефолтов, обычный вызов упадет.
+        try:
+            default_config = self.config_class()
+            self.save_config_instance(default_config)
+            return default_config
+        except Exception:
+            # Если не удалось создать специфичный конфиг (например, из-за отсутствия параметров),
+            # создаем базовый ComponentConfig, чтобы плагин хотя бы загрузился.
+            if self.config_class != ComponentConfig:
+                return ComponentConfig() # type: ignore
+            raise # Если даже базовый не создается, значит проблема серьезнее
 
     def save_config(self):
         """Saves current configuration to config.json."""
@@ -143,11 +150,3 @@ class BaseTool(BaseComponent[TConfig]):
     def format_output(self, result: Any) -> str:
         """Formats the tool's result for the user."""
         return str(result)
-
-class BaseScheduler(BaseComponent[TConfig]):
-    component_type = "scheduler"
-
-    @abstractmethod
-    async def run_iteration(self, router: Any):
-        """Runs a single iteration of the scheduled task."""
-        pass

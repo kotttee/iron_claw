@@ -3,6 +3,7 @@ import inspect
 from pathlib import Path
 from typing import Dict, List, Any, TYPE_CHECKING
 from src.core.interfaces import BaseComponent, BaseTool, BaseChannel
+from rich.console import Console
 
 if TYPE_CHECKING:
     from src.core.ai.router import Router
@@ -10,6 +11,8 @@ if TYPE_CHECKING:
 PLUGIN_BASE_DIRS = [
     Path(__file__).parent.parent,
 ]
+
+console = Console()
 
 def get_all_plugins(router: "Router" = None) -> Dict[str, List[Any]]:
     """
@@ -46,15 +49,21 @@ def get_all_plugins(router: "Router" = None) -> Dict[str, List[Any]]:
                     
                     for _, obj in inspect.getmembers(module, inspect.isclass):
                         # Проверяем, что класс определен именно в этом модуле, а не импортирован
-                        if obj.__module__ != module.__name__:
+                        if obj.__module__ != module.__name__ or inspect.isabstract(obj):
                             continue
 
                         if issubclass(obj, BaseTool) and obj is not BaseTool:
-                            all_components["tools"].append(obj())
+                            instance = obj()
+                            if router:
+                                setattr(instance, 'router', router)
+                            all_components["tools"].append(instance)
                         elif issubclass(obj, BaseChannel) and obj is not BaseChannel:
-                            all_components["channels"].append(obj())
+                            instance = obj()
+                            if router:
+                                setattr(instance, 'router', router)
+                            all_components["channels"].append(instance)
 
-                except Exception:
-                    pass
+                except Exception as e:
+                    console.print(f"[red]Error loading module {module_name}: {e}[/red]")
 
     return all_components
