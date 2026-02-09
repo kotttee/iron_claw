@@ -148,7 +148,7 @@ fi
 # --- Completion ---
 echo
 success "-------------------------------------------"
-success "  IronClaw Installation Complete!          "
+success "  IronClaw Installation Complete!    Run ironclaw onboard   "
 success "-------------------------------------------"
 info "You can now run the agent from any folder using:"
 info "  ironclaw onboard"
