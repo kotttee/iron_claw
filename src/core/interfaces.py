@@ -12,15 +12,15 @@ from src.core.paths import DATA_ROOT, PLUGINS_DIR
 console = Console()
 
 class ComponentConfig(BaseModel):
-    enabled: bool = Field(True, description="Whether the component is active and should be loaded.")
+    enabled: bool = Field(default=True, description="Whether the component is active and should be loaded.")
 
 TConfig = TypeVar("TConfig", bound=ComponentConfig)
 
 class CronConfig(ComponentConfig):
-    cron: str = Field(..., description="Cron expression for scheduling (e.g., '0 8 * * *' for daily at 8 AM).")
+    cron: str = Field(default="", description="Cron expression for scheduling (e.g., '0 8 * * *' for daily at 8 AM).")
 
 class IntervalConfig(ComponentConfig):
-    interval_seconds: int = Field(..., description="Fixed interval in seconds between executions.")
+    interval_seconds: int = Field(default=60, description="Fixed interval in seconds between executions.")
 
 class BaseComponent(ABC, Generic[TConfig]):
     """
@@ -28,7 +28,7 @@ class BaseComponent(ABC, Generic[TConfig]):
     Manages configuration via Pydantic and provides a SQLite connection.
     """
     name: str
-    config_class: Type[TConfig] = ComponentConfig  # type: ignore
+    config_class: Type[TConfig] = ComponentConfig # type: ignore
     component_type: str = "plugin"  # "plugin", "channel", or "scheduler"
 
     def __init__(self):
@@ -58,20 +58,24 @@ class BaseComponent(ABC, Generic[TConfig]):
                 data = json.loads(self.config_path.read_text(encoding="utf-8"))
                 return self.config_class(**data)
             except Exception as e:
-                console.print(f"[bold red]Error loading config for {self.name}: {e}. Trying to recover...[/bold red]")
+                # Only print error if it's not a simple instantiation issue
+                if "BaseModel cannot be instantiated" not in str(e):
+                    console.print(f"[bold red]Error loading config for {self.name}: {e}. Trying to recover...[/bold red]")
         
-        # Пытаемся создать дефолтный конфиг. 
-        # Если в config_class есть обязательные поля без дефолтов, обычный вызов упадет.
+        # Ensure config_class is not the raw BaseModel (Pydantic v2 fix)
+        if self.config_class is BaseModel:
+            self.config_class = ComponentConfig # type: ignore
+
         try:
+            # Attempt to create default config
             default_config = self.config_class()
             self.save_config_instance(default_config)
             return default_config
         except Exception:
-            # Если не удалось создать специфичный конфиг (например, из-за отсутствия параметров),
-            # создаем базовый ComponentConfig, чтобы плагин хотя бы загрузился.
+            # Fallback to base ComponentConfig if specific config fails (e.g. missing required fields)
             if self.config_class != ComponentConfig:
                 return ComponentConfig() # type: ignore
-            raise # Если даже базовый не создается, значит проблема серьезнее
+            return ComponentConfig() # type: ignore
 
     def save_config(self):
         """Saves current configuration to config.json."""
