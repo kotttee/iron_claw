@@ -6,20 +6,20 @@ from src.core.ai.settings import SettingsManager
 
 console = Console()
 
-BASE_SYSTEM_PROMPT = "You are the IronClaw Architect. Your goal is to conduct a step-by-step onboarding to set up the AI system."
+BASE_SYSTEM_PROMPT = "You are the IronClaw Architect. Your goal is to conduct a step-by-step onboarding to set up the AI system. Wait for user input after each question. Do not finish a phase until you have all the necessary information."
 
 PHASES = [
     {
         "name": "AI Identity",
-        "instruction": "PHASE 1: AI Identity. Define your name and persona. Focus ONLY on this. When done, output '###PHASE_DONE###'."
+        "instruction": "PHASE 1: AI Identity. Introduce yourself and propose your name and persona. Ask the user if they agree or want to change anything. Focus ONLY on this. When the user is satisfied, output '###PHASE_DONE###'."
     },
     {
         "name": "User Persona",
-        "instruction": "PHASE 2: User Persona. Ask for the user's name and goals. Focus ONLY on this. When done, output '###PHASE_DONE###'."
+        "instruction": "PHASE 2: User Persona. Ask for the user's name and what they want to achieve with this system. Focus ONLY on this. When you have the info, output '###PHASE_DONE###'."
     },
     {
         "name": "System Preferences",
-        "instruction": "PHASE 3: System Preferences. Ask for Timezone and other settings. When done, output '###PHASE_DONE###'."
+        "instruction": "PHASE 3: System Preferences. Ask for the user's Timezone and any specific behavioral preferences (e.g. brevity, tone). When done, output '###PHASE_DONE###'."
     }
 ]
 
@@ -55,11 +55,14 @@ def run_onboarding_session():
                     system_prompt=current_system
                 )
                 
-                is_start_of_phase = False
-                
+                # Проверяем завершение фазы, но не позволяем выйти в самом первом сообщении фазы,
+                # чтобы у пользователя всегда была возможность ответить.
                 if "###PHASE_DONE###" in response:
-                    phase_active = False
+                    if not is_start_of_phase:
+                        phase_active = False
                     response = response.replace("###PHASE_DONE###", "").strip()
+
+                is_start_of_phase = False
 
                 if response:
                     console.print(Markdown(response))
