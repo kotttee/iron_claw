@@ -11,15 +11,15 @@ BASE_SYSTEM_PROMPT = "You are the IronClaw Architect. Your goal is to conduct a 
 PHASES = [
     {
         "name": "AI Identity",
-        "instruction": "PHASE 1: AI Identity. Interview the user to define your (the AI's) name and core content (persona, tone, style). Focus ONLY on this. When you have both name and content, output '###PHASE_DONE###' at the end of your message."
+        "instruction": "PHASE 1: AI Identity. Define your name and persona. Focus ONLY on this. When done, output '###PHASE_DONE###'."
     },
     {
         "name": "User Persona",
-        "instruction": "PHASE 2: User Persona. Now ask the user for their name and their primary goals. Focus ONLY on this. When you have both, output '###PHASE_DONE###' at the end of your message."
+        "instruction": "PHASE 2: User Persona. Ask for the user's name and goals. Focus ONLY on this. When done, output '###PHASE_DONE###'."
     },
     {
         "name": "System Preferences",
-        "instruction": "PHASE 3: System Preferences. Ask for the user's Timezone (mandatory) and any other text-based preferences they want you to remember. When finished, output '###PHASE_DONE###' at the end of your message."
+        "instruction": "PHASE 3: System Preferences. Ask for Timezone and other settings. When done, output '###PHASE_DONE###'."
     }
 ]
 
@@ -36,19 +36,18 @@ def run_onboarding_session():
     for phase in PHASES:
         console.print(f"\n[bold yellow]>>> {phase['name']}[/bold yellow]")
         phase_active = True
+        is_start_of_phase = True
         
         while phase_active:
             try:
                 # Формируем системный промпт для текущей фазы
                 current_system = f"{BASE_SYSTEM_PROMPT}\n\n{phase['instruction']}"
                 
-                # Если это начало фазы и сообщений еще нет, получаем приветствие от ИИ
-                if not messages or messages[-1]["role"] == "assistant":
-                    # Ждем ввода пользователя, если это не самый первый запуск
-                    if messages:
-                        user_input = console.input("\nYou > ")
-                        if user_input.lower() in ["exit", "quit"]: return
-                        messages.append({"role": "user", "content": user_input})
+                # Если это НЕ начало фазы, сначала ждем ответа пользователя на предыдущий вопрос ИИ
+                if not is_start_of_phase:
+                    user_input = console.input("\nYou > ")
+                    if user_input.lower() in ["exit", "quit"]: return
+                    messages.append({"role": "user", "content": user_input})
                 
                 response = router.provider.chat(
                     model=router.model_name,
@@ -56,21 +55,15 @@ def run_onboarding_session():
                     system_prompt=current_system
                 )
                 
-                # Проверяем, завершил ли ИИ фазу
+                is_start_of_phase = False
+                
                 if "###PHASE_DONE###" in response:
                     phase_active = False
-                    clean_response = response.replace("###PHASE_DONE###", "").strip()
-                    if clean_response:
-                        console.print(Markdown(clean_response))
-                        messages.append({"role": "assistant", "content": clean_response})
-                else:
+                    response = response.replace("###PHASE_DONE###", "").strip()
+
+                if response:
                     console.print(Markdown(response))
                     messages.append({"role": "assistant", "content": response})
-                    
-                    # Если ИИ задал вопрос, нам нужно получить ответ пользователя в следующей итерации
-                    user_input = console.input("\nYou > ")
-                    if user_input.lower() in ["exit", "quit"]: return
-                    messages.append({"role": "user", "content": user_input})
 
             except KeyboardInterrupt:
                 return
@@ -78,8 +71,8 @@ def run_onboarding_session():
     # Финальный этап: Генерация JSON
     console.print("\n[bold green]Finishing onboarding and saving your identity...[/bold green]")
     final_prompt = (
-        "Onboarding complete. Now, based on our conversation, output the final configuration JSON. "
-        "Use this EXACT format: ###SAVE_IDENTITY### | {\"name\": \"...\", \"content\": \"...\", \"user_name\": \"...\", \"user_goals\": \"...\", \"timezone\": \"...\", \"preferences\": {}}"
+        "Onboarding complete. Create a single Markdown string containing ALL information we discussed "
+        "(AI identity, User persona, Timezone, Preferences). Output it as: ###SAVE_IDENTITY### | {\"bio\": \"# Markdown content...\"}"
     )
     
     final_response = router.provider.chat(

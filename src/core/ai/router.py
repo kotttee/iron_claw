@@ -3,7 +3,7 @@ import os
 import json
 import inspect
 from datetime import datetime
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Tuple
 from rich.console import Console
 from dotenv import load_dotenv
 
@@ -49,19 +49,14 @@ class Router:
         console.print("[bold green]Router: Provider and plugins re-initialized.[/bold green]")
 
     def build_system_prompt(self) -> str:
+        # Reload config to ensure we have the latest updates from tools/onboarding
+        self.memory.config = self.memory.load_config()
         profile = self.memory.config
         facts = self.memory.get_long_term_facts()
         
-        prompt = f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        prompt += f"Your Identity (AI Name): {profile.name}\n"
-        prompt += f"Your Persona/Instructions: {profile.content}\n"
-        prompt += f"User Name: {profile.user_name}\n"
-        prompt += f"User Goals: {profile.user_goals}\n"
-        prompt += f"Timezone: {profile.timezone}\n"
-        
-        if profile.preferences:
-            prefs_str = ", ".join([f"{k}: {v}" for k, v in profile.preferences.items()])
-            prompt += f"Additional Preferences: {prefs_str}\n"
+        prompt = "# SYSTEM CONTEXT\n"
+        prompt += f"- Current Time (UTC): {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        prompt += "\n" + profile.bio + "\n"
         
         if facts:
             prompt += "\n=== LONG-TERM FACTS ===\n" + "\n".join(f"- {f}" for f in facts)
@@ -92,12 +87,22 @@ class Router:
             self.active_targets[source] = target_id
 
         if self.is_busy:
+            # 1. If user wants to stop manually
             if user_message.lower().strip() == "stop":
                 if self.current_task:
                     self.current_task.cancel()
                 return
-            await self._send_to_channel("⏳ I am currently busy. Type 'stop' to cancel the current task.", source)
-            return
+            
+            # 2. If it's a scheduler message, it has priority: cancel current and proceed
+            if source == "scheduler":
+                if self.current_task:
+                    self.current_task.cancel()
+                # Wait a bit for cancellation to propagate
+                await asyncio.sleep(0.1)
+            else:
+                # 3. Normal channel: ask to send 'stop'
+                await self._send_to_channel("⏳ I am currently busy. Type 'stop' to cancel the current task.", source)
+                return
 
         self.current_task = asyncio.create_task(self._run_chat_loop(user_message, source))
         try:
@@ -135,7 +140,7 @@ class Router:
                 self.memory.add_message("user", f"[TOOL RESULT]: {res}")
                 await self._send_to_channel(fmt, source)
             else:
-                await self._send_to_channel(response, source)
+                await self._send_to_channel(response.strip(), source)
                 break
 
     async def _execute_tool(self, name, args):
@@ -169,6 +174,33 @@ class Router:
         return None
 
     async def _send_to_channel(self, text: str, source: str):
+        # If source is scheduler, broadcast to all active targets/channels
+        if source == "scheduler":
+            sent_somewhere = False
+            
+            # 1. Send to all active targets (e.g. last Telegram chat, last Discord channel)
+            for target_source, target_id in self.active_targets.items():
+                channel = next((c for c in self.active_channels if c.name == target_source), None)
+                if channel:
+                    await channel.send_message(text, target_id)
+                    sent_somewhere = True
+            
+            # 2. Send to all IPC writers (Console/CLI)
+            for s, writer in list(self.ipc_writers.items()):
+                try:
+                    writer.write((text + "\n\n").encode())
+                    await writer.drain()
+                    sent_somewhere = True
+                except:
+                    del self.ipc_writers[s]
+            
+            # 3. Fallback to console if nothing else is active
+            if not sent_somewhere:
+                channel = next((c for c in self.active_channels if c.name == "console"), None)
+                if channel:
+                    await channel.send_message(text, None)
+            return
+
         # Handle IPC/Console directly if applicable
         if source.startswith("ipc_") or source == "console":
             writer = self.ipc_writers.get(source)
