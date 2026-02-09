@@ -3,59 +3,68 @@ from src.core.ai.memory import MemoryManager
 from .config import IdentityConfig
 from typing import Any
 
-class UpdatePersonaTool(BaseTool[IdentityConfig]):
+class UpdateAIIdentityTool(BaseTool[IdentityConfig]):
     """
-    Updates the AI's persona description (tone, style, behavior, and core instructions).
+    Updates the AI's own identity (name and core persona/content).
     """
-    name = "identity/update_persona"
+    name = "identity/update_ai_identity"
     config_class = IdentityConfig
 
-    async def execute(self, content: str) -> str:
+    async def execute(self, name: str = None, content: str = None) -> str:
         try:
-            MemoryManager.update_profile_static({"content": content})
-            return f"AI content and persona updated: {content}"
+            updates = {}
+            if name: updates["name"] = name
+            if content: updates["content"] = content
+            MemoryManager.update_profile_static(updates)
+            return f"AI Identity updated: {updates}"
         except Exception as e:
             return f"Error: {e}"
 
     def format_output(self, result: Any) -> str:
         return f"🎭 {result}"
 
-    async def healthcheck(self): return True, "OK"
+    async def healthcheck(self) -> tuple[bool, str]: return True, "OK"
 
-class UpdateUserGoalsTool(BaseTool[IdentityConfig]):
+class UpdateUserPersonaTool(BaseTool[IdentityConfig]):
     """
-    Updates the recorded goals and background information of the human user.
+    Updates the user's persona (their name and goals).
     """
-    name = "identity/update_user_goals"
+    name = "identity/update_user_persona"
     config_class = IdentityConfig
 
-    async def execute(self, goals: str) -> str:
+    async def execute(self, user_name: str = None, user_goals: str = None) -> str:
         try:
-            MemoryManager.update_profile_static({"user_goals": goals})
-            return f"User goals updated to: {goals}"
+            updates = {}
+            if user_name: updates["user_name"] = user_name
+            if user_goals: updates["user_goals"] = user_goals
+            MemoryManager.update_profile_static(updates)
+            return f"User Persona updated: {updates}"
         except Exception as e:
             return f"Error: {e}"
 
     def format_output(self, result: Any) -> str:
         return f"🎯 {result}"
 
-    async def healthcheck(self): return True, "OK"
+    async def healthcheck(self) -> tuple[bool, str]: return True, "OK"
 
-class UpdateAINameTool(BaseTool[IdentityConfig]):
+class UpdatePreferencesTool(BaseTool[IdentityConfig]):
     """
-    Updates the AI's name and general identity information.
+    Updates system preferences like timezone and other text-based settings.
     """
-    name = "identity/update_ai_name"
+    name = "identity/update_preferences"
     config_class = IdentityConfig
 
-    async def execute(self, name: str) -> str:
+    async def execute(self, timezone: str = None, preferences: dict = None) -> str:
         try:
-            MemoryManager.update_profile_static({"name": name})
-            return f"AI Name updated to: {name}"
+            updates = {}
+            if timezone: updates["timezone"] = timezone
+            if preferences: updates["preferences"] = preferences
+            MemoryManager.update_profile_static(updates)
+            return f"Preferences updated: {updates}"
         except Exception as e:
             return f"Error: {e}"
 
     def format_output(self, result: Any) -> str:
-        return f"👤 {result}"
+        return f"⚙️ {result}"
 
-    async def healthcheck(self): return True, "OK"
+    async def healthcheck(self) -> tuple[bool, str]: return True, "OK"

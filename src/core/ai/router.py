@@ -53,9 +53,15 @@ class Router:
         facts = self.memory.get_long_term_facts()
         
         prompt = f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        prompt += f"Your Name: {profile.name}\n"
-        prompt += f"Your Content/Persona: {profile.content}\n"
+        prompt += f"Your Identity (AI Name): {profile.name}\n"
+        prompt += f"Your Persona/Instructions: {profile.content}\n"
+        prompt += f"User Name: {profile.user_name}\n"
         prompt += f"User Goals: {profile.user_goals}\n"
+        prompt += f"Timezone: {profile.timezone}\n"
+        
+        if profile.preferences:
+            prefs_str = ", ".join([f"{k}: {v}" for k, v in profile.preferences.items()])
+            prompt += f"Additional Preferences: {prefs_str}\n"
         
         if facts:
             prompt += "\n=== LONG-TERM FACTS ===\n" + "\n".join(f"- {f}" for f in facts)

@@ -8,9 +8,14 @@ from src.core.paths import PLUGINS_DIR
 
 class AgentProfile(ComponentConfig):
     enabled: bool = Field(True, description="Whether the memory system is active.")
+    # AI Identity
     name: str = Field("IronClaw", description="The name of the AI agent.")
-    content: str = Field("A helpful AI assistant.", description="The core instructions and persona description for the AI.")
+    content: str = Field("A helpful AI assistant.", description="AI's core instructions, tone, and style.")
+    # User Persona
+    user_name: str = Field("User", description="The name of the human user.")
     user_goals: str = Field("General assistance.", description="The primary goals the agent should help the user achieve.")
+    # System Preferences
+    timezone: str = Field("UTC", description="User's timezone (e.g., 'Europe/Moscow').")
     preferences: Dict[str, str] = Field({}, description="Key-value pairs of user preferences.")
 
 class MemoryManager(BaseComponent[AgentProfile]):
