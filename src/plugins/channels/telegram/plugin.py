@@ -3,7 +3,7 @@ from functools import partial
 from typing import Any, Tuple, TYPE_CHECKING
 
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.enums import ChatAction, ParseMode
+from aiogram.enums import ChatAction
 from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramUnauthorizedError
 from rich.console import Console
@@ -167,7 +167,7 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
 
         for part in parts:
             try:
-                await self.bot.send_message(chat_id=chat_id, text=part.replace("**", "*"), disable_web_page_preview=True, parse_mode=ParseMode.MARKDOWN_V2)
+                await self.bot.send_message(chat_id=chat_id, text=part, disable_web_page_preview=True, parse_mode="MarkdownV2")
                 await asyncio.sleep(0.5)
             except Exception as e:
                 console.print(f"[bold red]Error sending Telegram message part: {e}[/bold red]")

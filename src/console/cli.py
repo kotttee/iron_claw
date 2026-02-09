@@ -74,10 +74,10 @@ def start(
             with open(PID_FILE, "w") as f:
                 f.write(str(p.pid))
             console.print(f"Daemon started with PID: {p.pid}")
-            raise typer.Exit()
         except Exception as e:
             console.print(f"[bold red]Failed to start daemon: {e}[/bold red]")
             raise typer.Exit(1)
+        raise typer.Exit()
     else:
         with open(PID_FILE, "w") as f:
             f.write(str(os.getpid()))
