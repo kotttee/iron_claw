@@ -1,4 +1,5 @@
 import subprocess
+import shlex
 from src.core.interfaces import BaseTool
 from .config import BashToolConfig
 
@@ -11,14 +12,18 @@ class ExecuteBashTool(BaseTool[BashToolConfig]):
 
     async def execute(self, command: str) -> str:
         """Executes a shell command from a safelist and returns its output."""
-        command_parts = command.strip().split()
-        if command_parts[0] not in self.config.safe_commands:
-            return f"Error: Command '{command_parts[0]}' is not allowed. Allowed commands are: {', '.join(self.config.safe_commands)}."
+        try:
+            command_parts = shlex.split(command.strip())
+        except ValueError:
+            return "Error: Invalid command format."
+
+        if not command_parts or command_parts[0] not in self.config.safe_commands:
+            return f"Error: Command '{command_parts[0] if command_parts else ''}' is not allowed. Allowed commands are: {', '.join(self.config.safe_commands)}."
 
         try:
             result = subprocess.run(
-                command,
-                shell=True,
+                command_parts,
+                shell=False,
                 check=True,
                 capture_output=True,
                 text=True,

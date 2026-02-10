@@ -11,3 +11,4 @@ xai-sdk
 questionary
 pytz
 aiocron
+shlex
