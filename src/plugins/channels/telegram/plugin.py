@@ -128,10 +128,10 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
 
     def _escape_markdown(self, text: str) -> str:
         """Escapes reserved characters for Telegram MarkdownV2."""
-        # Полный список зарезервированных символов Telegram MarkdownV2
+        # Telegram MarkdownV2 requires escaping these 18 characters:
         # _ * [ ] ( ) ~ ` > # + - = | { } . ! \
-        # Важно: внутри [] в регулярке некоторые символы нужно экранировать ([, ], -, \)
-        pattern = r"([_*\\~`>#+\-=|{}.!\\\])"
+        # In regex [], we escape [, ], -, and \ to ensure they are treated as literals.
+        pattern = r"([_*\\~`>#+\-=|{}.!\\\\])"
         return re.sub(pattern, r"\\\1", text)
 
     async def send_message(self, text: str, target: str | None = None):
