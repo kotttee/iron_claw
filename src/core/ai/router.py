@@ -192,7 +192,7 @@ class Router:
         if "```" in text:
             # Try to extract content between ```json and ``` or just ``` and ```
             import re
-            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            match = re.search(r"```\S*\s*(\{.*?\})\s*```", text, re.DOTALL)
             if match:
                 text = match.group(1)
 
@@ -201,7 +201,7 @@ class Router:
             start = text.find('{')
             end = text.rfind('}')
             if start != -1 and end != -1:
-                return json.loads(text[start:end+1])
+                return json.loads(text[start:end+1], strict=False)
         except: pass
         return None
 
