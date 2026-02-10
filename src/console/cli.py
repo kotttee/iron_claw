@@ -33,7 +33,12 @@ def is_running():
     if not PID_FILE.exists():
         return False
     try:
-        pid = int(PID_FILE.read_text())
+        content = PID_FILE.read_text().strip()
+        if not content:
+            return False
+        pid = int(content)
+        if pid == os.getpid():
+            return False
         os.kill(pid, 0)
     except (ValueError, OSError):
         return False
@@ -71,8 +76,6 @@ def start(
                     close_fds=True, start_new_session=True,
                     stdout=stdout_log, stderr=stderr_log, stdin=subprocess.DEVNULL,
                 )
-            with open(PID_FILE, "w") as f:
-                f.write(str(p.pid))
             console.print(f"Daemon started with PID: {p.pid}")
         except Exception as e:
             console.print(f"[bold red]Failed to start daemon: {e}[/bold red]")

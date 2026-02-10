@@ -3,14 +3,9 @@ from typing import Any
 from src.core.interfaces import BaseTool
 from .config import FileToolConfig
 
-WORKSPACE_DIR = Path("data/workspace")
-WORKSPACE_DIR.mkdir(exist_ok=True, parents=True)
-
-def get_safe_path(relative_path: str) -> Path | None:
-    safe_path = (WORKSPACE_DIR / relative_path).resolve()
-    if WORKSPACE_DIR.resolve() in safe_path.parents or safe_path == WORKSPACE_DIR.resolve():
-        return safe_path
-    return None
+def get_safe_path(path_str: str) -> Path:
+    """Resolves any path to an absolute path without workspace restrictions."""
+    return Path(path_str).resolve()
 
 class ReadFileTool(BaseTool[FileToolConfig]):
     """
@@ -21,8 +16,6 @@ class ReadFileTool(BaseTool[FileToolConfig]):
 
     async def execute(self, path: str) -> str:
         safe_path = get_safe_path(path)
-        if not safe_path:
-            return f"Error: Access denied. Path is outside the allowed workspace."
         if not safe_path.is_file():
             return f"Error: Path '{path}' is not a file or does not exist."
         try:
@@ -46,8 +39,6 @@ class WriteFileTool(BaseTool[FileToolConfig]):
 
     async def execute(self, path: str, content: str) -> str:
         safe_path = get_safe_path(path)
-        if not safe_path:
-            return f"Error: Access denied. Path is outside the allowed workspace."
         try:
             safe_path.parent.mkdir(parents=True, exist_ok=True)
             bytes_written = safe_path.write_text(content, encoding="utf-8")
@@ -71,8 +62,6 @@ class ListFilesTool(BaseTool[FileToolConfig]):
 
     async def execute(self, path: str) -> str:
         safe_path = get_safe_path(path)
-        if not safe_path:
-            return f"Error: Access denied. Path is outside the allowed workspace."
         if not safe_path.is_dir():
             return f"Error: Path '{path}' is not a directory or does not exist."
         try:
