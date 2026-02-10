@@ -12,7 +12,7 @@ class ExecuteBashTool(BaseTool[BashToolConfig]):
     async def execute(self, command: str) -> str:
         """Executes a shell command from a safelist and returns its output."""
         command_parts = command.strip().split()
-        if not command_parts or command_parts[0] not in self.config.safe_commands:
+        if command_parts[0] not in self.config.safe_commands:
             return f"Error: Command '{command_parts[0]}' is not allowed. Allowed commands are: {', '.join(self.config.safe_commands)}."
 
         try:
