@@ -129,7 +129,7 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
     def _escape_markdown(self, text: str) -> str:
         """Escapes reserved characters for Telegram MarkdownV2."""
         # Reserved characters: _ * [ ] ( ) ~ ` > # + - = | { } . !
-        return re.sub(r"([_*\\~\\`>#+\-=|{}.!])", r"\\\1", text)
+        return re.sub(r"([_*\\~`>#+\-=|{}.!\\])", r"\\\1", text)
 
     async def send_message(self, text: str, target: str | None = None):
         """Sends a message to the target user."""
