@@ -32,6 +32,7 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
         super().__init__()
         self.bot: Bot | None = None
         self.admin_id: int | None = None
+        self.typing_task: asyncio.Task | None = None
 
     async def healthcheck(self) -> Tuple[bool, str]:
         """Checks if the bot token and admin ID are valid."""
@@ -100,11 +101,12 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
         if not await self._is_user_allowed(message):
             return
 
-        typing_task = asyncio.create_task(self._typing_loop(message.chat.id))
+        self.typing_task = asyncio.create_task(self._typing_loop(message.chat.id))
         try:
             await router.process_message(text_to_process, "telegram", str(message.chat.id))
         finally:
-            typing_task.cancel()
+            self.typing_task.cancel()
+            self.typing_task = None
 
     async def _handle_start(self, message: types.Message):
         if await self._is_user_allowed(message):
@@ -180,8 +182,11 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
 
         # send more typing if its tool
         if is_tool:
-            await self.bot.send_chat_action(chat_id, action=ChatAction.TYPING)
-            await self.bot.send_chat_action(chat_id, action=ChatAction.TYPING, request_timeout=5)
+            self.typing_task = asyncio.create_task(self._typing_loop(chat_id))
+        else:
+            if self.typing_task:
+                self.typing_task.cancel()
+                self.typing_task = None
 
         if len(text) <= TELEGRAM_MAX_MESSAGE_LENGTH:
             await self.bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True, parse_mode="MarkdownV2")
