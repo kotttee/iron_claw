@@ -104,9 +104,12 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
         self.typing_task = asyncio.create_task(self._typing_loop(message.chat.id))
         try:
             await router.process_message(text_to_process, "telegram", str(message.chat.id))
-        finally:
+        except Exception as e:
             self.typing_task.cancel()
             self.typing_task = None
+            console.print(f"[bold red]Error processing message: {e}[/bold red]")
+            await self._send_text_async(str(message.chat.id), f"❌ An error occurred: {e}", is_tool=False)
+
 
     async def _handle_start(self, message: types.Message):
         if await self._is_user_allowed(message):
