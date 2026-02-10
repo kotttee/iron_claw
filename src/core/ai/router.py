@@ -74,7 +74,7 @@ class Router:
             
         if tool_defs:
             prompt += "\n\n=== AVAILABLE TOOLS ===\n"
-            prompt += "To use a tool, respond ONLY with a JSON object: {\"tool\": \"name\", \"args\": {...}}\n"
+            prompt += "To use a tool, respond ONLY with a JSON object: {\"tool\": \"name\", \"args\": {...}, \"message\": \"Optional explanation for the user\"}\n"
             prompt += "\n".join(tool_defs)
             
         return prompt
@@ -139,7 +139,11 @@ class Router:
             
             if tool_call:
                 t_name, t_args = tool_call.get("tool"), tool_call.get("args", {})
-                await self._send_to_channel(f"🤖 Calling tool: `{t_name}`", source)
+                t_msg = tool_call.get("message")
+                if t_msg:
+                    await self._send_to_channel(f"🤖 {t_msg}", source)
+                else:
+                    await self._send_to_channel(f"🤖 Calling tool: `{t_name}`", source)
                 res, fmt = await self._execute_tool(t_name, t_args)
                 
                 if fmt.startswith("Error:"):
