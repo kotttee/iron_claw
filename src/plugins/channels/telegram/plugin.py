@@ -139,7 +139,7 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
         
         # 3. Остальные символы, которые ОБЯЗАТЕЛЬНО нужно экранировать,
         # иначе Telegram выдаст BadRequest:
-        special_chars = "~>#+-=|{}.!"
+        special_chars = "[]()~>#+-=|{}.!"
         for char in special_chars:
             text = text.replace(char, f"\\{char}")
         return text
