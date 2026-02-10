@@ -74,11 +74,11 @@ class ListFilesTool(BaseTool[FileToolConfig]):
 
     def format_output(self, result: str) -> str:
         if result.startswith("Error"):
-            return f"⚠️ {result}"
+            return f"[Tool Result] ⚠️ {result}"
         if result == "Directory is empty.":
-            return "📂 Directory is empty."
+            return "[Tool Result] 📂 Directory is empty."
         
         num_items = len(result.split('\n')) - 1
-        return f"📂 Found {num_items} items in the directory."
+        return f"[Tool Result] 📂 Found {num_items} items in the directory."
 
     async def healthcheck(self): return True, "OK"

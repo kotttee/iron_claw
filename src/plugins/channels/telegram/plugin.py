@@ -135,7 +135,9 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
         if not target_id:
             console.print("[bold red]No target ID provided for Telegram message.[/bold red]")
             return
-
+        # check if its a tool call or tool result and format markdown
+        if text.startswith("[Tool Result]") or text.startswith("[Calling tool]"):
+            ext = f"```{text}```"
         await self._send_text_async(target_id, text)
 
     async def _send_text_async(self, user_id: str, text: str):
@@ -149,7 +151,7 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             return
 
         if len(text) <= TELEGRAM_MAX_MESSAGE_LENGTH:
-            await self.bot.send_message(chat_id=chat_id, text=text)
+            await self.bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True, parse_mode="MarkdownV2")
             return
 
         parts = []

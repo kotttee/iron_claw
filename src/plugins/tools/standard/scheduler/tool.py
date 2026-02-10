@@ -22,7 +22,9 @@ class ScheduleTaskTool(BaseTool[SchedulerToolConfig]):
             return f"Error: {e}"
 
     def format_output(self, result: Any) -> str:
-        return f"🗓️ {result}"
+        if result.startswith("Error"):
+            return f"[Tool Result] ⚠️ {result}"
+        return f"[Tool Result] 🗓️ {result}"
 
     async def healthcheck(self) -> tuple[bool, str]:
         return True, "Scheduler tool ready."

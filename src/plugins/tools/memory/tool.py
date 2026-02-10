@@ -1,3 +1,5 @@
+from typing import Any
+
 from src.core.interfaces import BaseTool
 from src.core.ai.memory import MemoryManager
 from .config import MemoryToolConfig
@@ -15,6 +17,11 @@ class AddFactTool(BaseTool[MemoryToolConfig]):
             return f"Fact remembered: {fact}"
         except Exception as e:
             return f"Error: {e}"
+
+    def format_output(self, result: Any) -> str:
+        if result.startswith("Error"):
+            return f"[Tool Result] ⚠️ {result}"
+        return f"[Tool Result] 🧠 {result}"
 
     async def healthcheck(self): return True, "OK"
 

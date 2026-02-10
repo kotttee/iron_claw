@@ -74,7 +74,7 @@ class Router:
             
         if tool_defs:
             prompt += "\n\n=== AVAILABLE TOOLS ===\n"
-            prompt += "To use a tool, respond ONLY with a JSON object: {\"tool\": \"name\", \"args\": {...}, \"message\": \"Optional explanation for the user\"}\n"
+            prompt += "To use a tool, respond ONLY with a JSON object: {\"tool\": \"name\", \"args\": {...}, \"message\": \"explanation for the user\"}\n"
             prompt += "\n".join(tool_defs)
             
         return prompt
@@ -142,15 +142,15 @@ class Router:
                 t_msg = tool_call.get("message")
                 if t_msg:
                     await self._send_to_channel(f"🤖 {t_msg}", source)
-                else:
-                    await self._send_to_channel(f"🤖 Calling tool: `{t_name}`", source)
-                res, fmt = await self._execute_tool(t_name, t_args)
+
+                await self._send_to_channel(f"[Calling tool]: `{t_name}`", source)
+                tool_result, formatted_tool_result = await self._execute_tool(t_name, t_args)
                 
-                if fmt.startswith("Error:"):
+                if tool_result.startswith("Error:"):
                     error_count += 1
                 
-                self.memory.add_message("user", f"[TOOL RESULT]: {res}")
-                await self._send_to_channel(fmt, source)
+                self.memory.add_message("user", f"[TOOL RESULT]: {tool_result}")
+                await self._send_to_channel(formatted_tool_result, source)
 
                 if error_count >= max_errors:
                     self.memory.add_message("user", "[SYSTEM]: Maximum tool errors reached. Please provide a final response to the user based on available information.")

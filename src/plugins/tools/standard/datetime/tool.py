@@ -23,6 +23,6 @@ class GetCurrentDateTimeTool(BaseTool[DateTimeConfig]):
     def format_output(self, result: str) -> str:
         if result.startswith("Error"):
             return f"⚠️ {result}"
-        return f"🕒 {result}"
+        return f"[Tool Result] 🕒 {result}"
 
     async def healthcheck(self): return True, "OK"

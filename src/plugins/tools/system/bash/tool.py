@@ -40,7 +40,7 @@ class ExecuteBashTool(BaseTool[BashToolConfig]):
 
     def format_output(self, result: str) -> str:
         if result.startswith("Error"):
-            return f"⚠️ {result}"
-        return f"⚙️ Command executed. Total output length: {len(result)} characters."
+            return f"[Tool Result] ⚠️ {result}"
+        return f"[Tool Result] ⚙️ Command executed. Total output length: {len(result)} characters."
 
     async def healthcheck(self): return True, "OK"
