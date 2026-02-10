@@ -86,11 +86,15 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
 
     async def _typing_loop(self, chat_id: int):
         """Sends a 'typing' status on a loop."""
+        iterations_left = 3
         while True:
             try:
                 if self.bot:
                     await self.bot.send_chat_action(chat_id, action=ChatAction.TYPING)
                 await asyncio.sleep(TYPING_INTERVAL_SECONDS)
+                iterations_left -= 1
+                if iterations_left <= 0:
+                    break
             except asyncio.CancelledError:
                 break
             except Exception:
