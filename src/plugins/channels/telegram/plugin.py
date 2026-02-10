@@ -1,4 +1,5 @@
 import asyncio
+import re
 from functools import partial
 from typing import Any, Tuple, TYPE_CHECKING
 
@@ -125,6 +126,11 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             system_text = f"[SYSTEM EVENT: User sent a DOCUMENT. Filename: {doc.file_name}. File ID: {doc.file_id}]"
             await self._process_with_typing(message, router, system_text)
 
+    def _escape_markdown(self, text: str) -> str:
+        """Escapes reserved characters for Telegram MarkdownV2."""
+        # Reserved characters: _ * [ ] ( ) ~ ` > # + - = | { } . !
+        return re.sub(r"([_*\\~`>#+\-=|{}.!])", r"\\\1", text)
+
     async def send_message(self, text: str, target: str | None = None):
         """Sends a message to the target user."""
         if not self.bot:
@@ -137,7 +143,13 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             return
         # check if its a tool call or tool result and format markdown
         if text.startswith("[Tool Result]") or text.startswith("[Calling tool]"):
-            ext = f"```{text}```"
+            # Inside pre-formatted code blocks, only \ and ` need escaping
+            escaped_content = text.replace("\\", "\\\\").replace("`", "\\`")
+            text = f"```\n{escaped_content}\n```"
+        else:
+            # For standard text, escape all reserved characters to avoid parsing errors
+            text = self._escape_markdown(text)
+            
         await self._send_text_async(target_id, text)
 
     async def _send_text_async(self, user_id: str, text: str):
