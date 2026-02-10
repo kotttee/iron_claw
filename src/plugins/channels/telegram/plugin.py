@@ -1,5 +1,4 @@
 import asyncio
-import re
 from functools import partial
 from typing import Any, Tuple, TYPE_CHECKING
 
@@ -126,12 +125,17 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             system_text = f"[SYSTEM EVENT: User sent a DOCUMENT. Filename: {doc.file_name}. File ID: {doc.file_id}]"
             await self._process_with_typing(message, router, system_text)
 
-    def _escape_markdown(self, text: str) -> str:
-        """Escapes reserved characters for Telegram MarkdownV2."""
-        # Telegram MarkdownV2 requires escaping these 18 characters:
-        # _ * [ ] ( ) ~ ` > # + - = | { } . ! \
-        pattern = r"([_*\\~`>#+\-=|{}.!\\])"
-        return re.sub(pattern, r"\\\1", text)
+    def _escape_markdown(self, text: str, is_code_block: bool = False) -> str:
+        """
+        Escapes reserved characters for Telegram MarkdownV2.
+        If is_code_block is True, only escapes \ and ` as per Telegram spec.
+        """
+        text = text.replace("\\", "\\\\")
+        # Список остальных 18 зарезервированных символов MarkdownV2
+        special_chars = "_*[]()~`>#+-=|{}.!"
+        for char in special_chars:
+            text = text.replace(char, f"\\{char}")
+        return text
 
     async def send_message(self, text: str, target: str | None = None):
         """Sends a message to the target user."""
@@ -145,12 +149,11 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             return
         # check if its a tool call or tool result and format markdown
         if text.startswith("[Tool Result]") or text.startswith("[Calling tool]"):
-            # Если это технический вывод, мы все равно экранируем его полностью методом _escape_markdown,
-            # но оборачиваем в блоки кода для читаемости. Это гарантирует, что если сообщение
-            # будет разбито на части, Telegram не упадет на второй части без бэкстиков.
-            escaped_text = self._escape_markdown(text)
+            # Для инструментов используем специальный режим экранирования
+            escaped_text = self._escape_markdown(text, is_code_block=True)
             text = f"```\n{escaped_text}\n```"
         else:
+            # Для обычных сообщений экранируем всё (безопасный режим)
             text = self._escape_markdown(text)
             
         await self._send_text_async(target_id, text)
