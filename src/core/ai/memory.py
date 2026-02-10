@@ -53,7 +53,7 @@ class MemoryManager(BaseComponent[AgentProfile]):
         )
         self.db.commit()
 
-    def get_short_term_context(self, limit: int = 15) -> List[Dict[str, str]]:
+    def get_short_term_context(self, limit: int = 50) -> List[Dict[str, str]]:
         cursor = self.db.cursor()
         cursor.execute(
             "SELECT role, content FROM history ORDER BY timestamp DESC LIMIT ?",
@@ -69,7 +69,7 @@ class MemoryManager(BaseComponent[AgentProfile]):
 
     def get_long_term_facts(self) -> List[str]:
         cursor = self.db.cursor()
-        cursor.execute("SELECT fact FROM facts ORDER BY timestamp DESC LIMIT 20")
+        cursor.execute("SELECT fact FROM facts ORDER BY timestamp DESC")
         return [r["fact"] for r in cursor.fetchall()]
 
     @staticmethod
