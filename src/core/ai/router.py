@@ -119,8 +119,12 @@ class Router:
         self.is_busy = True
         self.memory.add_message("user", user_message)
         
-        max_iterations = 5
-        for _ in range(max_iterations):
+        max_iterations = 100
+        max_errors = 5
+        error_count = 0
+        limit_reached = False
+
+        for i in range(max_iterations):
             messages = self.memory.get_short_term_context()
             
             response = await asyncio.to_thread(
@@ -137,11 +141,35 @@ class Router:
                 t_name, t_args = tool_call.get("tool"), tool_call.get("args", {})
                 await self._send_to_channel(f"🤖 Calling tool: `{t_name}`", source)
                 res, fmt = await self._execute_tool(t_name, t_args)
+                
+                if fmt.startswith("Error:"):
+                    error_count += 1
+                
                 self.memory.add_message("user", f"[TOOL RESULT]: {res}")
                 await self._send_to_channel(fmt, source)
+
+                if error_count >= max_errors:
+                    self.memory.add_message("user", "[SYSTEM]: Maximum tool errors reached. Please provide a final response to the user based on available information.")
+                    limit_reached = True
+                    break
+                
+                if i == max_iterations - 1:
+                    self.memory.add_message("user", "[SYSTEM]: Maximum tool iterations reached. Please provide a final response to the user.")
+                    limit_reached = True
             else:
                 await self._send_to_channel(response.strip(), source)
-                break
+                return
+
+        if limit_reached:
+            messages = self.memory.get_short_term_context()
+            final_response = await asyncio.to_thread(
+                self.provider.chat,
+                model=self.model_name,
+                messages=messages,
+                system_prompt=self.build_system_prompt()
+            )
+            self.memory.add_message("assistant", final_response)
+            await self._send_to_channel(final_response.strip(), source)
 
     async def _execute_tool(self, name, args):
         tool = next((t for t in self.plugin_manager.get("tools", []) if t.name == name), None)
