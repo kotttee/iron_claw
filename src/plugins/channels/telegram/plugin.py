@@ -7,6 +7,7 @@ from aiogram.enums import ChatAction
 from aiogram.filters import CommandStart
 from aiogram.exceptions import TelegramUnauthorizedError
 from rich.console import Console
+from xai_sdk.chat import tool
 
 from src.core.interfaces import BaseChannel
 from .config import TelegramConfig
@@ -159,13 +160,15 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             # Для инструментов используем специальный режим экранирования
             escaped_text = self._escape_markdown(text, is_code_block=True)
             text = f"```\n{escaped_text}\n```"
+            is_tool = True
         else:
             # Для обычных сообщений экранируем всё (безопасный режим)
             text = self._escape_markdown(text)
+            is_tool = False
             
-        await self._send_text_async(target_id, text)
+        await self._send_text_async(target_id, text, is_tool=is_tool)
 
-    async def _send_text_async(self, user_id: str, text: str):
+    async def _send_text_async(self, user_id: str, text: str, is_tool: bool):
         """Asynchronously sends a text message, handling splitting."""
         if not self.bot: return
 
@@ -174,6 +177,11 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
         except ValueError:
             console.print(f"[bold red]Invalid target user_id for Telegram: {user_id}[/bold red]")
             return
+
+        # send more typing if its tool
+        if is_tool:
+            await self.bot.send_chat_action(chat_id, action=ChatAction.TYPING)
+            await self.bot.send_chat_action(chat_id, action=ChatAction.TYPING, request_timeout=5)
 
         if len(text) <= TELEGRAM_MAX_MESSAGE_LENGTH:
             await self.bot.send_message(chat_id=chat_id, text=text, disable_web_page_preview=True, parse_mode="MarkdownV2")
