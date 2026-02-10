@@ -120,16 +120,22 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             await message.reply("IronClaw agent connected. How can I help you?")
 
     async def _handle_text(self, message: types.Message, router: "Router"):
+        if not await self._is_user_allowed(message):
+            return
         if message.text:
             await self._process_with_typing(message, router, message.text)
 
     async def _handle_photo(self, message: types.Message, router: "Router"):
+        if not await self._is_user_allowed(message):
+            return
         if message.photo:
             largest_photo = message.photo[-1]
             system_text = f"[SYSTEM EVENT: User sent a PHOTO. File ID: {largest_photo.file_id}]"
             await self._process_with_typing(message, router, system_text)
 
     async def _handle_document(self, message: types.Message, router: "Router"):
+        if not await self._is_user_allowed(message):
+            return
         if message.document:
             doc = message.document
             system_text = f"[SYSTEM EVENT: User sent a DOCUMENT. Filename: {doc.file_name}. File ID: {doc.file_id}]"
@@ -189,7 +195,8 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
 
         # send more typing if its tool
         if is_tool:
-            self.typing_task = asyncio.create_task(self._typing_loop(chat_id))
+            if not self.typing_task:
+                self.typing_task = asyncio.create_task(self._typing_loop(chat_id))
         else:
             if self.typing_task:
                 self.typing_task.cancel()
