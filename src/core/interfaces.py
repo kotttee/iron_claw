@@ -106,9 +106,30 @@ class BaseComponent(ABC, Generic[TConfig]):
             if isinstance(current_val, bool):
                 val = questionary.confirm(f"{description}?", default=current_val).ask()
             elif isinstance(current_val, int):
-                val = questionary.text(f"{description}:", default=str(current_val), 
+                res = questionary.text(f"{description}:", default=str(current_val), 
                                        validate=lambda text: text.isdigit() or "Must be an integer").ask()
-                if val is not None: val = int(val)
+                val = int(res) if res is not None else None
+            elif isinstance(current_val, list):
+                # Для простых списков (строки/числа) используем ввод через запятую
+                is_simple = all(isinstance(x, (str, int, float)) for x in current_val) if current_val else True
+                
+                if is_simple:
+                    default_str = ", ".join(map(str, current_val))
+                    res = questionary.text(f"{description} (comma-separated):", default=default_str).ask()
+                    if res is not None:
+                        # Разбиваем строку и убираем лишние пробелы
+                        val = [item.strip() for item in res.split(",") if item.strip()]
+                        # Пытаемся восстановить типы, если в оригинале были числа
+                        if current_val and isinstance(current_val[0], int):
+                            val = [int(i) for i in val if i.isdigit()]
+                else:
+                    # Для сложных списков (списки словарей и т.д.) используем JSON
+                    val = self._ask_json(field_name, description, current_val)
+                    if val is None: continue
+            elif isinstance(current_val, dict):
+                # Для словарей всегда используем JSON
+                val = self._ask_json(field_name, description, current_val)
+                if val is None: continue
             else:
                 val = questionary.text(f"{description}:", default=str(current_val)).ask()
             
@@ -118,6 +139,17 @@ class BaseComponent(ABC, Generic[TConfig]):
         if new_values:
             self.update_config(new_values)
             console.print(f"[green]✔ {self.name} configuration updated.[/green]")
+
+    def _ask_json(self, field_name: str, description: str, current_val: Any) -> Optional[Any]:
+        """Вспомогательный метод для редактирования JSON структур."""
+        default_json = json.dumps(current_val, ensure_ascii=False)
+        res = questionary.text(f"{description} (JSON format):", default=default_json).ask()
+        if res is not None:
+            try:
+                return json.loads(res)
+            except json.JSONDecodeError:
+                console.print(f"[bold red]Ошибка: Некорректный формат JSON для {field_name}.[/bold red]")
+        return None
 
     def shutdown(self):
         """Gracefully close resources."""
