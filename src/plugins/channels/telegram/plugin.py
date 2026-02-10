@@ -128,8 +128,11 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
 
     def _escape_markdown(self, text: str) -> str:
         """Escapes reserved characters for Telegram MarkdownV2."""
-        # Reserved characters: _ * [ ] ( ) ~ ` > # + - = | { } . !
-        return re.sub(r"([_*\\~`>#+\-=|{}.!\\])", r"\\\1", text)
+        # Полный список зарезервированных символов Telegram MarkdownV2
+        # _ * [ ] ( ) ~ ` > # + - = | { } . ! \
+        # Важно: внутри [] в регулярке некоторые символы нужно экранировать ([, ], -, \)
+        pattern = r"([_*\\~`>#+\-=|{}.!\\\])"
+        return re.sub(pattern, r"\\\1", text)
 
     async def send_message(self, text: str, target: str | None = None):
         """Sends a message to the target user."""
@@ -143,11 +146,12 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             return
         # check if its a tool call or tool result and format markdown
         if text.startswith("[Tool Result]") or text.startswith("[Calling tool]"):
-            # Inside pre-formatted code blocks, only \ and ` need escaping
-            escaped_content = text.replace("\\", "\\\\").replace("`", "\\`")
-            text = f"```\n{escaped_content}\n```"
+            # Если это технический вывод, мы все равно экранируем его полностью методом _escape_markdown,
+            # но оборачиваем в блоки кода для читаемости. Это гарантирует, что если сообщение
+            # будет разбито на части, Telegram не упадет на второй части без бэкстиков.
+            escaped_text = self._escape_markdown(text)
+            text = f"```\n{escaped_text}\n```"
         else:
-            # For standard text, escape all reserved characters to avoid parsing errors
             text = self._escape_markdown(text)
             
         await self._send_text_async(target_id, text)
@@ -176,6 +180,11 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
                 split_pos = text.rfind('\n', 0, TELEGRAM_MAX_MESSAGE_LENGTH)
             if split_pos == -1:
                 split_pos = TELEGRAM_MAX_MESSAGE_LENGTH
+            
+            # Проверка: не заканчивается ли часть на символ '\', который должен что-то экранировать
+            if split_pos > 0 and text[split_pos-1] == '\\':
+                split_pos -= 1
+                
             parts.append(text[:split_pos])
             text = text[split_pos:].lstrip()
 
