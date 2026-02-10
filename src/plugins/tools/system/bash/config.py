@@ -8,10 +8,12 @@ class BashToolConfig(ComponentConfig):
         ["ls", "pwd", "echo", "whoami", "date", "uname", "df", "du",
          "free", "uptime", "ironclaw", "cat", "curl", "wget", "python3", "pip3", "python", "pip",
          "npm", "node", "git", "grep", "find", "mkdir", "rmdir", "touch", "rm", "cp", "mv", "chmod",
-         "chown", "ps", "top", "htop", "kill", "tar", "zip", "unzip", "ssh", "scp", "ping", "netstat", "ifconfig", "ip",
+         "chown", "ps", "top", "htop", "kill", "tar", "zip", "unzip", "ssh", "scp", "ping", "ifconfig", "ip",
          "docker", "docker-compose", "kubectl", "gh", "brew", "apt", "apt-get", "yum", "dnf",
          "systemctl", "journalctl", "tail", "head", "less", "more", "sed", "awk", "xargs",
-         "sort", "uniq", "wc", "diff", "patch", "history", "alias", "export", "env", "printenv"
+         "sort", "uniq", "wc", "diff", "patch", "history", "alias", "export", "env", "printenv", "cd",
+         "pwd", "ss", "lsof", "netstat", "dig", "nslookup", "traceroute", "nmap"
+
         ],
         description="List of commands that are considered safe to execute without extra confirmation."
     )
