@@ -126,11 +126,17 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
             await self._process_with_typing(message, router, system_text)
 
     def _escape_markdown(self, text: str, is_code_block: bool = False) -> str:
-        """
+        r"""
         Escapes reserved characters for Telegram MarkdownV2.
         If is_code_block is True, only escapes \ and ` as per Telegram spec.
         """
+        # Порядок важен: сначала экранируем сам бэкстлэш
         text = text.replace("\\", "\\\\")
+        
+        if is_code_block:
+            # Внутри блоков кода экранируем только обратный апостроф
+            return text.replace("`", "\\`")
+
         # Список остальных 18 зарезервированных символов MarkdownV2
         special_chars = "_*[]()~`>#+-=|{}.!"
         for char in special_chars:
