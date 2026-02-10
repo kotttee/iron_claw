@@ -109,10 +109,12 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
         try:
             await router.process_message(text_to_process, "telegram", str(message.chat.id))
         except Exception as e:
-            self.typing_task.cancel()
-            self.typing_task = None
             console.print(f"[bold red]Error processing message: {e}[/bold red]")
             await self._send_text_async(str(message.chat.id), f"❌ An error occurred: {e}", is_tool=False)
+        finally:
+            if self.typing_task:
+                self.typing_task.cancel()
+                self.typing_task = None
 
 
     async def _handle_start(self, message: types.Message):
@@ -195,7 +197,7 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
 
         # send more typing if its tool
         if is_tool:
-            if not self.typing_task:
+            if self.typing_task is None or self.typing_task.done():
                 self.typing_task = asyncio.create_task(self._typing_loop(chat_id))
         else:
             if self.typing_task:
@@ -227,6 +229,10 @@ class TelegramChannel(BaseChannel[TelegramConfig]):
         for part in parts:
             try:
                 await self.bot.send_message(chat_id=chat_id, text=part, disable_web_page_preview=True, parse_mode="MarkdownV2")
+                # После отправки сообщения Telegram сбрасывает статус "typing", 
+                # поэтому если это промежуточный этап (tool), отправляем статус снова сразу
+                if is_tool:
+                    await self.bot.send_chat_action(chat_id, action=ChatAction.TYPING)
                 await asyncio.sleep(0.5)
             except Exception as e:
                 console.print(f"[bold red]Error sending Telegram message part: {e}[/bold red]")
